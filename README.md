@@ -7,6 +7,11 @@ que le contestes.
 
 GUI nativa en Rust. Un solo binario, sin Electron, sin servidor, sin navegador.
 
+![Cinco paneles en mosaico, cada uno con su terminal, y la columna de sesiones a la izquierda](docs/mosaico.png)
+
+*Cinco procesos a la vez. El del borde verde es el que te escucha; el estado de
+cada uno va en su cabecera y el resumen de la sesión, en la columna.*
+
 ## Cómo se empieza
 
 ### Descargarlo (Windows, sin instalar nada)
@@ -48,6 +53,11 @@ cargo install --path .         # dejarlo instalado: luego se abre escribiendo `f
 `cargo install` lo copia a `~/.cargo/bin`, que ya está en el `PATH`. Para
 desinstalarlo, `cargo uninstall flow`.
 
+**Para actualizar el que ya tienes instalado**, `git pull` y vuelve a lanzar
+`cargo install --path .`: sobrescribe el binario de `~/.cargo/bin`. Mientras no
+lo hagas seguirás abriendo el de la última vez, aunque el código del repositorio
+haya cambiado.
+
 El código es multiplataforma —usa `$SHELL` y `$XDG_CONFIG_HOME` fuera de
 Windows— pero **quien lo desarrolla y lo prueba trabaja en Windows**, que es de
 donde salen los binarios publicados. En Linux y macOS se compila desde fuente, y
@@ -59,11 +69,50 @@ El binario no tiene dependencias en tiempo de ejecución: las dos tipografías v
 embebidas y las dos son OFL, así que se puede redistribuir sin más (ver
 [licencias](#licencias)).
 
+## Cómo funciona, en un minuto
+
+Al abrirlo no hay nada: flow no adivina qué querías lanzar. `Ctrl-N` abre una
+sesión nueva, y el formulario pregunta **de una cosa en una**, siguiente,
+siguiente, siguiente. Son tres preguntas y en cada una hay algo que pulsar, así
+que se puede recorrer entero sin escribir: `Enter` avanza y `Enter` en el último
+paso lanza.
+
+**1 — Dónde.** Sobre qué directorio se trabaja. Arriba, los proyectos que ya has
+usado; debajo, los repositorios que flow ha encontrado solo en tu equipo. El que
+está puesto ahora lleva el borde en verde. Si escribes una ruta que no existe, se
+avisa y el botón del final pasa a llamarse `CREAR Y LANZAR`.
+
+![Primer paso: PROYECTO, REPOS y el campo DIR](docs/asistente-1.png)
+
+**2 — Qué.** Qué se lanza ahí dentro. Solo salen los agentes que tienes de verdad
+en el `PATH`, cada uno con su marca; pulsas uno y rellena el comando, que sigue
+abajo por si querías otra cosa. De aquí no se sale con el comando en blanco.
+
+![Segundo paso: AGENTES, HERRAMIENTAS y el campo COMMAND](docs/asistente-2.png)
+
+**3 — Lanzar.** Cómo se va a llamar el panel —si no pones nada, se llama como el
+comando— y un resumen de lo que va a pasar antes de que pase.
+
+![Tercer paso: NAME y el resumen de lo que se va a lanzar](docs/asistente-3.png)
+
+La raya de debajo del título es el indicador de paso: los tramos hechos y el de
+ahora van en verde, el que falta en gris, y el de ahora es el más grueso.
+
+A partir de ahí, la sesión existe y el proceso corre en un PTY de verdad.
+`Ctrl-T` le añade paneles —hasta ocho, todos sobre el mismo directorio—, la
+rejilla se reparte sola, y la barra de abajo escribe en el panel que tenga el
+foco. Añadir un panel se queda en dos pasos en vez de tres: el directorio no se
+pregunta porque un panel hereda el de su sesión.
+
 ## Qué hace
 
 - **Sesiones.** Lanzar un agente abre una sesión, y dentro caben hasta ocho
   paneles **sobre el mismo directorio**: el agente y las terminales desde las
   que miras lo que hace, o los subagentes entre los que reparte el trabajo.
+- **Se lanza contestando tres cosas.** Dónde, qué y cómo se llama, de una en
+  una. Los directorios se eligen de una lista —lo que ya has usado, y los
+  repositorios que flow ha encontrado solo en tu equipo—, así que abrir sesión no
+  pide teclear una ruta.
 - **Los agentes saben que están dentro.** Cada proceso recibe el entorno de su
   sesión y un buzón por el que puede pedir que le abran un panel al lado: lo que
   ejecuta se ve en una terminal de su propia sesión en vez de en ningún sitio.
@@ -126,12 +175,39 @@ con el número, que es lo único que no distingue una sesión de otra. Cuando la
 ventana se estrecha, la columna se encoge a los números para no comerle columnas
 al terminal.
 
-## Proyectos
+## Proyectos y repositorios
 
 Una sesión vive atada a un directorio —es lo que comparten sus paneles—, y ese
 directorio había que teclearlo entero cada vez. Un **proyecto** es solo eso: una
 ruta que ya has usado. Al abrir sesión salen los últimos doce y basta con pulsar
 su nombre.
+
+Eso no sirve la primera vez, claro: recién descargado no has usado ninguna. Por
+eso flow **busca tus repositorios él solo** al arrancar y los ofrece en un grupo
+aparte, debajo. Es un `.git` dentro de una carpeta, y da igual que sea fichero o
+directorio, así que los *worktrees* y los submódulos también cuentan.
+
+Los dos grupos van separados a propósito y en ese orden: lo que has abierto tú
+manda sobre lo que te propone la máquina, y mezclarlos haría que la lista bailara
+entre arranques sin que hayas hecho nada. Lo que ya está arriba no se repite
+abajo.
+
+**Dónde busca, y por qué no en todas partes.** Barrer el disco entero está
+descartado: son cientos de miles de directorios, un `stat` por entrada pasando
+por el antivirus, y basta una unidad de red o una carpeta que descargue a demanda
+para quedarse minutos colgado. La señal buena sale gratis: si trabajas en
+`C:\Repos\projects\flow`, entonces `C:\Repos\projects` es una huerta de
+repositorios. A eso se le suman los sitios de siempre —`~\source\repos`,
+`~\Documents\GitHub`, `~\dev`, `~\code`…—, tres niveles de profundidad, y se poda
+al encontrar: dentro de un repositorio no se sigue bajando. No se ejecuta `git`
+ni una vez; la rama se lee de `.git/HEAD`, que es un fichero de una línea.
+
+Se ordenan por la fecha de `.git`, que es «cuándo trabajé aquí por última vez»
+sin ejecutar nada, y se ofrecen diez como mucho: pasado ese punto la lista deja de
+ser una sugerencia y pasa a ser un explorador de archivos. Todo esto corre en un
+hilo aparte y **una sola vez por ejecución**, porque lo que tarda no lo decide el
+número de carpetas sino el antivirus, y la ventana no puede quedarse quieta por
+eso.
 
 Si escribes una ruta que todavía no existe, no es un error: el formulario lo
 avisa debajo del campo y el botón pasa a llamarse `CREAR Y LANZAR`, así que la
@@ -146,6 +222,14 @@ simplemente no recuerda.
 ## Temas
 
 `Ctrl-Shift-T` abre la lista. Vienen cinco:
+
+![El selector de temas, con los cinco incluidos y sus muestras de color](docs/temas.png)
+
+**Lo que eliges se ve mientras lo eliges**: moverse por la lista aplica el tema
+de verdad a la app entera —los paneles, el grano, la salida de los procesos—, no
+a una miniatura. Un tema se juzga con la terminal llena de texto. `Esc` deja las
+cosas como estaban, así que probar no cuesta nada.
+
 
 | Tema         | Qué es                                                |
 | ------------ | ----------------------------------------------------- |
@@ -319,6 +403,7 @@ Está en el temporal del usuario, así que no da a nadie nada que no tuviera ya
 | `Ctrl-1`…`9`   | Saltar a la sesión n-ésima                         |
 | `Alt-1`…`8`    | Saltar al panel n-ésimo de la sesión               |
 | `Alt`+flechas  | Mover el foco al panel de al lado                  |
+| `Enter`        | En el formulario: pasa al siguiente paso, o lanza  |
 | `Esc`          | Cerrar el formulario                               |
 
 ## Diseño
