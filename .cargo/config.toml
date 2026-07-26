@@ -1,0 +1,13 @@
+# CRT estático en Windows.
+#
+# Por defecto el ejecutable pide `VCRUNTIME140.dll`, que viene con el
+# redistribuible de Visual C++. Casi todas las máquinas lo tienen —lo instala
+# medio mundo— pero "casi" no sirve para un binario que se reparte suelto: en la
+# que no lo tenga, flow no arranca y lo único que dice Windows es que falta una
+# DLL.
+#
+# Enlazándolo estático el ejecutable no depende de nada que haya que instalar
+# antes. Cuesta algo de tamaño; para un solo fichero que quieres poder copiar y
+# ejecutar, sale a cuenta.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

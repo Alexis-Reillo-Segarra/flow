@@ -1,0 +1,20 @@
+[package]
+name = "flow"
+version = "0.1.0"
+edition = "2021"
+description = "Orquestador minimalista de agentes CLI sobre PTYs reales"
+license = "MIT"
+
+[dependencies]
+eframe = "0.35"
+egui = "0.35"
+portable-pty = "0.9"
+vte = "0.15"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

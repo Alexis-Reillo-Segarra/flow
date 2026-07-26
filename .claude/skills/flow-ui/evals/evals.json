@@ -1,0 +1,47 @@
+{
+  "skill_name": "flow-ui",
+  "evals": [
+    {
+      "id": 0,
+      "name": "indicador-cpu",
+      "prompt": "Quiero ver de un vistazo cuánta CPU está comiendo cada proceso. Añade a la cabecera de cada panel un indicador del uso de CPU del agente, al lado del tiempo en vida. No hace falta que leas la CPU de verdad del sistema: puedes usar un valor simulado por ahora, lo que me importa es cómo queda en la cabecera.",
+      "expected_output": "Indicador en mono y cuerpo pequeño (MONO_XS), en un gris de la jerarquía de texto existente, sin color nuevo con significado inventado, sin emoji ni icono de fuente. Si dibuja una barra o marca, la dibuja con rect_filled a esquina viva y le da widget_info si es interactiva. Respeta el orden derecha-a-izquierda de la cabecera y pasa su color por `ink`, el cierre que combina el alpha de nacimiento del panel con DIM_INACTIVE, no por `fade` (que es solo para marco y divisorias).",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "sombras-bajo-paneles",
+      "prompt": "Los paneles se ven muy planos, como recortados sobre el fondo. Ponles una sombra debajo para que parezcan ventanas de verdad flotando, como en Hyprland.",
+      "expected_output": "Reconoce que sobre el fondo #000000 una sombra no puede renderizarse —oscurecer negro puro no da nada— y NO sube el fondo por su cuenta para arreglarlo: el negro OLED es una decisión anterior y explícita. Usa o extiende el halo que ya existe (widgets::panel_halo, la sombra invertida), o presenta al usuario el intercambio —sombras reales a cambio de perder el OLED— y le deja la decisión. Si toca el halo, mantiene la alfa muy baja y el tinte verde solo en el panel con foco, sin convertirlo en una señal independiente del borde.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "cerrar-sesion-a-mano",
+      "prompt": "Quiero poder cerrar una sesión entera con el ratón, sin acordarme de atajos. Ponme una X en cada fila de la columna de sesiones.",
+      "expected_output": "Señala que cerrar una sesión mata varios procesos y no tiene deshacer, y que ya hubo una X así que se quitó por eso mismo —era un objetivo diminuto pegado al clic con el que se cambia de sesión—. Si acaba poniendo un control, no lo centra en el borde de la fila (cabe dentro o no está), le da un área de clic razonable, no lo esconde tras hover como única pista, y añade confirmación o algún freno. Le declara widget_info. Alternativamente propone un camino menos afilado (confirmación, menú contextual) en vez de la X a secas.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "panel-de-ayuda",
+      "prompt": "Añade un panel lateral a la derecha con la lista de atajos de teclado, para no tener que ir al README.",
+      "expected_output": "El relleno del Panel nuevo va transparente, no opaco: el fondo con grano se pinta debajo de todo y un fill opaco lo taparía dejando una costura visible contra la barra y la columna. Las filas van a esquina viva (RADIUS es solo del panel de la rejilla), el aire sale de GAP y no de números nuevos, los nombres de tecla van en mono y los rótulos en sans. No introduce color con significado inventado ni iconos de fuente. Descuenta su ancho a la rejilla y comprueba el resultado con ocho paneles y con la ventana estrecha.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "iconos-oficiales",
+      "prompt": "Las marcas de los agentes se ven muy genéricas. Pon los logotipos oficiales de Claude, Codex y Gemini, los de verdad.",
+      "expected_output": "No inventa ni descarga recursos de marca ajenos, y no hace pasar una forma dibujada por el logotipo oficial. Explica que hacen falta los ficheros y pide que el usuario los aporte en assets/, o mejora las formas propias de presets::Mark dejando claro que son evocaciones. Si añade formas, las dibuja con segmentos —sin emoji ni fuente de iconos—, dentro del mismo círculo imaginario y con el mismo grosor de trazo que las demás, para que se lean como una familia.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "tema-catppuccin",
+      "prompt": "Me gustaría poder cambiar el tema de colores. Añade soporte para Catppuccin Mocha además del tema verde que hay ahora, y déjalo de forma que se puedan añadir más temas después sin rehacerlo todo.",
+      "expected_output": "Convierte las constantes de paleta en una estructura de tema seleccionable en vez de duplicar constantes. Los tests de contraste recorren todos los temas, no solo el activo, y comprueban los dos casos: texto entero y texto atenuado por DIM_INACTIVE, que es el caso real peor. Cada tema mantiene las dos caras del acento con el mismo tono y las dos por encima de 3:1 (son los extremos del degradado del foco), los cuatro colores de estado distinguibles, y los slots ANSI con su nombre semántico (el cian es cian, no el acento).",
+      "files": []
+    }
+  ]
+}

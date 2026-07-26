@@ -1,0 +1,48 @@
+pub mod bar;
+pub mod chrome;
+pub mod grain;
+pub mod output;
+pub mod prompt;
+pub mod spawn;
+pub mod tiles;
+pub mod widgets;
+
+/// Hacia dónde mover el foco dentro de la rejilla.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Intención producida por la UI y aplicada después por `Flow::apply`.
+///
+/// En modo inmediato la vista tiene prestado `&mut Flow` mientras dibuja, así
+/// que no puede añadir ni quitar nada sobre la marcha. Devolver una acción y
+/// resolverla al final del frame evita pelearse con el borrow checker y deja un
+/// único sitio donde ocurren las mutaciones de verdad.
+#[derive(Clone, Debug)]
+pub enum Action {
+    /// Cambia de sesión.
+    Switch(u64),
+    /// Cierra una sesión entera, con todos sus paneles.
+    CloseSession(u64),
+    /// Da el foco a un panel de la sesión actual.
+    Focus(u64),
+    /// Mueve el foco al panel vecino en esa dirección.
+    FocusDir(Dir),
+    /// Da el foco al panel n-ésimo (contando desde 0) de la sesión actual.
+    FocusIndex(usize),
+    Kill(u64),
+    /// Cierra un panel. Si era el último, se lleva la sesión por delante.
+    Close(u64),
+    Restart(u64),
+    /// Texto que el usuario escribió para el panel con el foco (sin el retorno).
+    Send(String),
+    /// Bytes crudos: Ctrl-C, ESC y demás teclas de control.
+    SendRaw(Vec<u8>),
+    OpenSpawn(spawn::Kind),
+    CancelSpawn,
+    ConfirmSpawn,
+}
