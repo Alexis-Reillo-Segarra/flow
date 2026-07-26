@@ -7,6 +7,7 @@ mod config;
 mod logo;
 mod presets;
 mod projects;
+mod repos;
 mod run;
 mod session;
 mod term;

@@ -13,7 +13,7 @@
 //! horas. `Esc` deja las cosas como estaban, que es lo que hace que probar no
 //! cueste nada.
 
-use egui::{vec2, Align, Color32, Context, CornerRadius, Id, Key, Layout, Rect, Sense, Stroke, Ui};
+use egui::{vec2, Align, Context, CornerRadius, Id, Key, Layout, Rect, Sense, Stroke, Ui};
 
 use crate::theme;
 use crate::ui::{widgets, Action};
@@ -89,15 +89,7 @@ pub fn show(ctx: &Context, picker: &Picker) -> Option<Action> {
     // aquello a 120 y con eso un tema se veía a la mitad de su brillo, o sea que
     // se elegía a ciegas. Lo justo para que el cuadro se despegue y ni un punto
     // más.
-    ctx.layer_painter(egui::LayerId::new(
-        egui::Order::Middle,
-        Id::new("themes-dim"),
-    ))
-    .rect_filled(
-        ctx.content_rect(),
-        CornerRadius::ZERO,
-        Color32::from_black_alpha(55),
-    );
+    widgets::veil(ctx, "themes-dim", 55);
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         return Some(Action::CancelThemes);

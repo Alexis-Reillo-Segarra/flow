@@ -1,6 +1,7 @@
 //! Estado de la aplicación y bucle de frame.
 
 use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use egui::{Context, Vec2};
@@ -8,6 +9,7 @@ use egui::{Context, Vec2};
 use crate::agent::Agent;
 use crate::presets;
 use crate::projects::Projects;
+use crate::repos;
 use crate::session::{self, Session};
 use crate::ui::{bar, chrome, grain, prompt, spawn, themes, tiles, Action, Dir};
 
@@ -53,6 +55,13 @@ pub struct Flow {
     /// Los directorios en los que ya has trabajado, para no volver a teclear la
     /// ruta. Se leen al arrancar y se reescriben al abrir una sesión.
     projects: Projects,
+    /// Los repositorios que flow ha encontrado por su cuenta. Vacío hasta que el
+    /// barrido conteste, que es lo normal durante los primeros frames.
+    repos: Vec<repos::Repo>,
+    /// Por donde llega el resultado del barrido. `None` antes de empezarlo y
+    /// después de recogerlo: se hace una vez por ejecución.
+    repos_rx: Option<Receiver<Vec<repos::Repo>>>,
+    repos_done: bool,
     input: String,
     /// Pide que el campo de entrada tome el foco en el próximo frame.
     focus_input: bool,
@@ -82,6 +91,9 @@ impl Flow {
             styled: crate::theme::active(),
             installed: presets::Installed::detect(),
             projects: Projects::load(),
+            repos: Vec::new(),
+            repos_rx: None,
+            repos_done: false,
             input: String::new(),
             focus_input: false,
             tiling: tiles::Tiling::default(),
@@ -351,6 +363,34 @@ impl Flow {
         self.sessions[i].push(pane, focus);
     }
 
+    /// Busca repositorios en el disco, en un hilo.
+    ///
+    /// Va aparte del hilo de dibujo porque lo que tarda esto no lo decide el
+    /// número de directorios sino el antivirus, y eso no se puede acotar desde
+    /// aquí: un barrido que normalmente son milisegundos puede ser un segundo en
+    /// una máquina con la carpeta de trabajo vigilada. La ventana no puede
+    /// quedarse quieta por eso.
+    ///
+    /// Se hace **una vez por ejecución**. Volver a mirar cada vez que se abre el
+    /// formulario sería tocar el disco por abrir un menú, y lo que se gana es un
+    /// repositorio que hayas clonado en los últimos diez minutos.
+    fn start_repo_scan(&mut self, ctx: &Context) {
+        let recent: Vec<String> = self.projects.dirs().to_vec();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let found = repos::scan(&repos::roots(&recent), &recent);
+            // Si nadie escucha, es que flow se ha cerrado mientras mirábamos: no
+            // es un error, es que ya no importa.
+            if tx.send(found).is_ok() {
+                // Sin esto el resultado se queda en el canal hasta que algo más
+                // pida un frame, y con la app parada eso puede no pasar nunca.
+                ctx.request_repaint();
+            }
+        });
+        self.repos_rx = Some(rx);
+    }
+
     /// Atiende lo que los agentes hayan dejado en sus buzones.
     ///
     /// El fichero se borra antes de lanzar nada, y pase lo que pase: si el
@@ -527,6 +567,20 @@ impl eframe::App for Flow {
             self.styled = crate::theme::active();
         }
 
+        // Los repositorios del disco, una vez por ejecución y en un hilo. Se
+        // arranca aquí y no en `new` porque hace falta el contexto para pedir el
+        // frame en el que se enseñará el resultado.
+        if !self.repos_done && self.repos_rx.is_none() {
+            self.start_repo_scan(ctx);
+        }
+        if let Some(rx) = &self.repos_rx {
+            if let Ok(found) = rx.try_recv() {
+                self.repos = found;
+                self.repos_rx = None;
+                self.repos_done = true;
+            }
+        }
+
         // Drenar los PTYs de **todas** las sesiones, no solo de la que se ve: un
         // agente que trabaja en otra sesión tiene que seguir avanzando y llegar
         // a BLOCKED aunque no lo estés mirando, que es justo cuando importa que
@@ -609,7 +663,14 @@ impl eframe::App for Flow {
         }
 
         let full = self.current().is_some_and(|s| s.is_full());
-        if let Some(a) = spawn::show(ctx, &mut self.form, &self.installed, &self.projects, full) {
+        if let Some(a) = spawn::show(
+            ctx,
+            &mut self.form,
+            &self.installed,
+            &self.projects,
+            &self.repos,
+            full,
+        ) {
             action = Some(a);
         }
         if let Some(a) = themes::show(ctx, &self.picker) {

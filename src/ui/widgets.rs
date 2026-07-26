@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use egui::{
-    epaint::StrokeKind, pos2, text::LayoutJob, vec2, Align2, Color32, CornerRadius, FontId, Galley,
-    Mesh, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2,
+    epaint::StrokeKind, pos2, text::LayoutJob, vec2, Align2, Color32, Context, CornerRadius,
+    FontId, Galley, Id, Mesh, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2,
 };
 
 use crate::agent::State;
@@ -164,11 +164,89 @@ fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
+/// El velo de un modal: apaga lo que hay detrás **y se lo quita al ratón**.
+///
+/// Las dos cosas van juntas, y por eso esto existe en vez de que cada modal se
+/// pinte su rectángulo. Un `layer_painter` **solo pinta**: no reserva sitio ni
+/// devuelve respuesta, así que oscurecía el fondo sin desactivarlo y los clics
+/// seguían llegando enteros a los paneles de debajo. Con el formulario abierto
+/// se podía dar el foco a otra terminal, escribir en ella o cerrarla por detrás
+/// del cuadro; y como el formulario de un panel hereda el directorio de la
+/// sesión que estabas mirando, cambiarla a su espalda hacía que lo que lanzabas
+/// naciera en otro sitio del que decía el cuadro.
+///
+/// Se traga la ventana entera, barra de título incluida. Ahí no solo están los
+/// botones de la ventana: también el `+` que abre una sesión nueva, que es una
+/// acción de la app y con un modal delante no puede seguir viva. El precio es
+/// que mientras el cuadro esté abierto la ventana no se mueve ni se cierra, y
+/// sale barato: Esc quita el cuadro y ya está.
+pub fn veil(ctx: &Context, id: &str, alpha: u8) {
+    let screen = ctx.content_rect();
+    egui::Area::new(Id::new(id))
+        .order(egui::Order::Middle)
+        .fixed_pos(screen.min)
+        .movable(false)
+        .show(ctx, |ui| {
+            // `click_and_drag` y no `click`: si solo se comiera el clic, un
+            // botón pulsado y arrastrado —seleccionar texto de una terminal—
+            // seguiría llegando abajo.
+            let (rect, _) = ui.allocate_exact_size(screen.size(), Sense::click_and_drag());
+            ui.painter()
+                .rect_filled(rect, CornerRadius::ZERO, Color32::from_black_alpha(alpha));
+        });
+}
+
 /// Separador horizontal de exactamente 1 px, de borde a borde.
 pub fn hline(ui: &mut Ui, color: Color32) {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 1.0), Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::ZERO, color);
+}
+
+/// La misma divisoria, partida en tramos para decir por qué paso vas.
+///
+/// Es la divisoria de siempre y no un elemento nuevo, y eso es la decisión: un
+/// formulario de tres pasos pide un indicador, y el sitio donde iría ya estaba
+/// ocupado por una raya de 1 px que no decía nada. Partirla sale gratis en
+/// espacio y en mobiliario —no hay puntos, ni números, ni una fila de pastillas
+/// que se sumen al cuadro—, que es justo lo que un formulario que quiere
+/// simplificarse no se puede permitir.
+///
+/// Dos canales, y hacen falta los dos: el **color** dice cuánto llevas —los
+/// tramos pasados y el de ahora en el acento, los que faltan en el gris de las
+/// divisorias— y el **grosor** dice en cuál estás, porque el de ahora va de 2 px
+/// y los demás de 1. Solo con el color, el tramo actual y los ya hechos serían
+/// el mismo dibujo y no sabrías dónde estás parado.
+pub fn step_line(ui: &mut Ui, total: usize, current: usize) {
+    let width = ui.available_width();
+    // Se reserva el alto del tramo más gordo pase lo que pase, para que la raya
+    // ocupe lo mismo en los tres pasos y el cuadro no se mueva al avanzar.
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 2.0), Sense::hover());
+    if total == 0 {
+        return;
+    }
+
+    let pal = theme::pal();
+    // El hueco sale de `GAP`, como todo el aire de la interfaz. A la mitad,
+    // porque aquí separa tramos de la misma raya y no ventanas.
+    let gap = theme::GAP * 0.5;
+    let seg = ((width - gap * (total - 1) as f32) / total as f32).max(1.0);
+
+    for i in 0..total {
+        let (thick, color) = match i.cmp(&current) {
+            std::cmp::Ordering::Equal => (2.0, pal.accent),
+            std::cmp::Ordering::Less => (1.0, pal.accent),
+            std::cmp::Ordering::Greater => (1.0, pal.line),
+        };
+        // Al píxel: una raya de 1 px que caiga a caballo entre dos sale gris.
+        let x = (rect.left() + (seg + gap) * i as f32).round();
+        let y = (rect.top() + (2.0 - thick) * 0.5).round();
+        ui.painter().rect_filled(
+            Rect::from_min_size(pos2(x, y), vec2(seg, thick)),
+            CornerRadius::ZERO,
+            color,
+        );
+    }
 }
 
 /// Marca de estado: un cuadrado de 6×6 con un lenguaje visual por estado.
@@ -356,11 +434,29 @@ pub fn paint_agent(painter: &Painter, rect: Rect, mark: Mark, color: Color32) {
 /// Botón de borde duro. Sin relleno salvo al pasar por encima: el estado de
 /// reposo es solo un contorno de 1 px.
 ///
-/// `accent` es el color con el que el botón se enciende, y acaba siendo texto
-/// al pasar por encima: quien lo llame tiene que pasar un color que cumpla el
-/// contraste de un texto (`ACCENT_TEXT`, no `ACCENT`).
-pub fn button(ui: &mut Ui, label: &str, accent: Color32) -> Response {
-    labelled_button(ui, label, None, accent)
+/// `ink` es el color del nombre **en reposo**, y con él se dice de qué clase de
+/// botón se trata: LANZAR descansa en el acento y CANCELAR en gris, igual que un
+/// agente descansa en el acento y una herramienta en gris. No es el color con el
+/// que se enciende —ese lo pone el acento del tema y es el mismo para todos—, así
+/// que tiene que ser un color que cumpla el contraste de un texto.
+pub fn button(ui: &mut Ui, label: &str, ink: Color32) -> Response {
+    labelled_button(ui, label, None, ink, None)
+}
+
+/// El mismo botón, para cuando es **una opción de una lista** y una de ellas está
+/// puesta: el directorio que hay ahora mismo en el campo, por ejemplo.
+///
+/// El elegido se dice con el borde en el acento, igual que el panel con foco de
+/// la rejilla, y **no con un relleno**: el relleno es lo que significa "tienes el
+/// ratón encima" en todos los botones del proyecto, y si además significara
+/// "este es el puesto", pasar por encima de otro haría que pareciera que has
+/// cambiado de opción sin haber pulsado.
+///
+/// En reposo descansan todos en gris, sin excepción para el puesto: los diez son
+/// la misma clase de cosa —una carpeta donde abrir— y lo único que los distingue
+/// es cuál está ahora en el campo.
+pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    labelled_button(ui, label, None, theme::pal().text_dim, Some(selected))
 }
 
 /// El mismo botón, con la marca del agente delante del nombre.
@@ -369,13 +465,32 @@ pub fn button(ui: &mut Ui, label: &str, accent: Color32) -> Response {
 /// nueve botones que ponen `claude codex gemini opencode…`, todos miden y pesan
 /// lo mismo y hay que leerlos uno a uno. Con una forma delante, el que buscas se
 /// encuentra sin leer.
-pub fn agent_button(ui: &mut Ui, label: &str, mark: Mark, accent: Color32) -> Response {
-    labelled_button(ui, label, Some(mark), accent)
+pub fn agent_button(ui: &mut Ui, label: &str, mark: Mark, ink: Color32) -> Response {
+    labelled_button(ui, label, Some(mark), ink, None)
 }
 
-fn labelled_button(ui: &mut Ui, label: &str, mark: Option<Mark>, accent: Color32) -> Response {
+/// `selected` a `None` es "esto no es una opción de una lista, es un botón que
+/// hace algo". No es lo mismo que `Some(false)`, y la diferencia importa fuera
+/// de lo visual: a un lector de pantalla hay que decirle que LANZAR no está
+/// puesto ni deja de estarlo.
+fn labelled_button(
+    ui: &mut Ui,
+    label: &str,
+    mark: Option<Mark>,
+    ink: Color32,
+    selected: Option<bool>,
+) -> Response {
     let font = theme::sans(theme::SANS_SM);
-    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, accent);
+    // `PLACEHOLDER` y no el color de verdad: el color se decide más abajo, según
+    // el botón esté en reposo, señalado, pulsado o puesto, y `Painter::galley`
+    // solo aplica el suyo a lo que venga sin pintar —un color escrito en el
+    // galley gana siempre—. Componiéndolo aquí con un color de verdad, el nombre
+    // del botón se quedaba clavado en él y las cuatro variantes de abajo solo
+    // llegaban al borde y a la marca. De paso, el galley se cachea una vez por
+    // nombre y no una por cada color en el que se le haya visto.
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER);
     let padding = vec2(8.0, 3.0);
     // La marca y el hueco que la separa del nombre. Si no hay marca no ocupa
     // nada, así que un botón sin ella mide exactamente lo que medía antes.
@@ -383,16 +498,28 @@ fn labelled_button(ui: &mut Ui, label: &str, mark: Option<Mark>, accent: Color32
     let size = galley.size() + padding * 2.0 + vec2(glyph, 0.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
 
+    // Los tres estados encendidos van todos al acento del tema y no a un color
+    // que traiga quien llama: encenderse significa lo mismo en toda la interfaz
+    // —esto es lo que te escucha— y darle un color por botón sería inventarse
+    // dialectos. Lo que sí decide quien llama es el reposo, que es donde el
+    // botón dice de qué clase es.
+    //
+    // Las dos caras del acento no son intercambiables: el borde y el relleno
+    // llevan la de trazo, las letras la de texto. Es lo único que hace que el
+    // marco cumpla su 3:1 y el nombre su 4,5:1.
+    let pal = theme::pal();
     let (bg, border, fg) = if response.is_pointer_button_down_on() {
-        (accent.gamma_multiply(0.22), accent, theme::pal().text_hi)
+        (pal.accent.gamma_multiply(0.22), pal.accent, pal.text_hi)
     } else if response.hovered() {
-        (theme::pal().hover, accent.gamma_multiply(0.75), accent)
+        (pal.hover, pal.accent, pal.accent_text)
+    } else if selected == Some(true) {
+        // Puesto y sin ratón encima: el borde y el nombre en el acento, pero sin
+        // relleno. El relleno es lo que separa "estás señalando esto" de "esto
+        // es lo que hay puesto"; si lo llevaran los dos, pasar por encima de
+        // otro parecería haberlo elegido.
+        (Color32::TRANSPARENT, pal.accent, pal.accent_text)
     } else {
-        (
-            Color32::TRANSPARENT,
-            theme::pal().line,
-            theme::pal().text_dim,
-        )
+        (Color32::TRANSPARENT, pal.line, ink)
     };
 
     let painter = ui.painter();
@@ -421,9 +548,14 @@ fn labelled_button(ui: &mut Ui, label: &str, mark: Option<Mark>, accent: Color32
     }
 
     // Sin esto el botón no existe para un lector de pantalla: está pintado a
-    // mano, así que hay que declararle a AccessKit qué es y cómo se llama.
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    // mano, así que hay que declararle a AccessKit qué es y cómo se llama. Y si
+    // es de los que pueden estar puestos, también si lo está: el borde en el
+    // acento no se lo cuenta a nadie que no lo vea.
+    response.widget_info(|| match selected {
+        Some(on) => {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), on, label)
+        }
+        None => egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label),
     });
     response
 }
