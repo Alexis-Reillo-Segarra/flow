@@ -134,17 +134,28 @@ impl Session {
 /// explicárselo.
 pub fn env(name: &str, id: u64, cwd: &str, inbox: &Path) -> Vec<(String, String)> {
     let inbox = inbox.display().to_string();
+    // La ruta del propio ejecutable, porque `flow run` solo se puede escribir a
+    // secas si flow está en el PATH, y una de las dos formas de tenerlo es
+    // haberse copiado el .exe al escritorio. Con esto, el que está dentro
+    // siempre tiene una forma de llamarlo que funciona.
+    let bin = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "flow".to_owned());
     let howto = format!(
         "Estás corriendo dentro de flow, un orquestador de agentes. Tu sesión se \
          llama «{name}» y todos sus paneles trabajan sobre {cwd}. Puedes abrir \
          paneles nuevos en tu propia sesión —una terminal para que se vea lo que \
-         ejecutas, o más agentes para repartirte el trabajo— escribiendo el \
-         comando en un fichero nuevo dentro del directorio FLOW_INBOX ({inbox}). \
-         Ejemplo: `echo cargo test > \"{inbox}/1.cmd\"`. flow lee el fichero, lo \
-         borra y abre el comando como un panel más al lado del tuyo, en el mismo \
-         directorio. Un fichero, un panel. Caben {MAX_PANES} por sesión. Lanza \
-         así todo proceso que dure o que interese mirar, en vez de dejarlo \
-         corriendo donde nadie lo ve."
+         ejecutas, o más agentes para repartirte el trabajo— con el comando \
+         `flow run <comando>`; si flow no está en tu PATH, llámalo por su ruta: \
+         \"{bin}\" run <comando>. Ejemplo: `flow run cargo test`. flow lo abre \
+         como un panel más al lado del tuyo, en el mismo directorio y en su \
+         propio terminal. Caben {MAX_PANES} paneles por sesión. Importante: el \
+         comando NO se ejecuta aquí y su salida NO vuelve a ti, se ve en el \
+         panel; úsalo para lo que dura o interesa mirar —un servidor, una suite \
+         de tests larga, seguir un log, un subagente— y no para algo cuya \
+         respuesta necesites leer para seguir trabajando. Por debajo, `flow run` \
+         solo escribe el comando en un fichero dentro del directorio FLOW_INBOX \
+         ({inbox}), así que también vale hacerlo a mano: un fichero, un panel."
     );
     vec![
         ("FLOW".to_owned(), "1".to_owned()),
@@ -152,6 +163,7 @@ pub fn env(name: &str, id: u64, cwd: &str, inbox: &Path) -> Vec<(String, String)
         ("FLOW_SESSION_ID".to_owned(), id.to_string()),
         ("FLOW_DIR".to_owned(), cwd.to_owned()),
         ("FLOW_INBOX".to_owned(), inbox),
+        ("FLOW_BIN".to_owned(), bin),
         ("FLOW_PANES".to_owned(), MAX_PANES.to_string()),
         ("FLOW_HOWTO".to_owned(), howto),
     ]
@@ -195,11 +207,18 @@ mod tests {
         assert_eq!(get("FLOW"), "1");
         assert_eq!(get("FLOW_SESSION"), "claude");
         assert_eq!(get("FLOW_DIR"), "/repo");
-        // El buzón tiene que salir tal cual en las instrucciones: es lo único
-        // que el agente necesita copiar para poder usarlo.
+        // Las dos rutas tienen que salir tal cual en las instrucciones: son lo
+        // único que el agente necesita copiar para poder usar esto, y `FLOW_BIN`
+        // es su salida cuando flow no está en el PATH.
         let howto = get("FLOW_HOWTO");
         assert!(howto.contains(&get("FLOW_INBOX")));
+        assert!(howto.contains(&get("FLOW_BIN")));
+        assert!(howto.contains("flow run"));
         assert!(howto.contains("claude") && howto.contains("/repo"));
+        // Y tiene que decir que la salida no vuelve: es la confusión que se
+        // paga cara —un agente esperando en `flow run npm test` una respuesta
+        // que se está imprimiendo en otro panel—.
+        assert!(howto.contains("NO vuelve"));
     }
 
     #[test]

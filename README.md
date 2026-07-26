@@ -229,11 +229,40 @@ terminal normal no existe —*ábreme esto al lado*—:
 | `FLOW_SESSION_ID` | Su identificador                                   |
 | `FLOW_DIR`        | El directorio que comparten sus paneles            |
 | `FLOW_INBOX`      | El buzón: por aquí se piden paneles                |
+| `FLOW_BIN`        | La ruta del propio flow, por si no está en el PATH |
 | `FLOW_PANES`      | Cuántos caben por sesión                           |
 | `FLOW_HOWTO`      | Todo lo anterior explicado en prosa, para el modelo |
 
-**El protocolo es un fichero.** Para abrir un panel en tu propia sesión, escribe
-el comando en un fichero nuevo dentro de `FLOW_INBOX`:
+### `flow run`
+
+Para abrir un panel en tu propia sesión:
+
+```
+flow run cargo test
+flow run npm run dev
+```
+
+Y si flow no está en el `PATH` —porque te copiaste el `.exe` a una carpeta
+cualquiera, que es una forma legítima de tenerlo— la misma llamada por su ruta,
+que llega en `FLOW_BIN`.
+
+**`flow run` no ejecuta nada**: escribe la petición y se va. El que lanza el
+proceso es flow, en su propio PTY, que es lo que lo convierte en un panel de
+verdad y no en la salida de un proceso colgando de otro. De ahí lo único que hay
+que entender para usarlo bien: **la salida no vuelve a quien lo pidió**, se ve en
+el panel.
+
+Eso reparte el trabajo solo:
+
+- Lo corto, y cuya respuesta el agente **necesita leer** para seguir —`git
+  diff`, un typecheck— se queda donde estaba: en su propia herramienta.
+- Lo que dura o interesa mirar —un servidor, la suite larga, seguir un log, un
+  subagente— va a `flow run`, y se ve trabajar al lado.
+
+### Por debajo es un fichero
+
+`flow run` solo escribe el comando en un fichero nuevo dentro de `FLOW_INBOX`, y
+eso sigue siendo el protocolo: se puede hacer a mano.
 
 ```
 echo cargo test > "%FLOW_INBOX%\1.cmd"     :: Windows
@@ -249,6 +278,14 @@ pelo— en cualquier lenguaje y en los dos sistemas, sin que flow tenga que abri
 nada al exterior. El buzón vive en el temporal del sistema, lleva el PID de flow
 y se borra al cerrar la sesión.
 
+El subcomando existe porque el `echo` se usaba poco y mal: había que acordarse de
+la ruta del buzón, inventarse un nombre de fichero que no chocara con otro y
+acertar con la redirección y las comillas, que no se escriben igual en `cmd`, en
+PowerShell y en un shell de Unix. Y cuando fallaba, fallaba en silencio: el
+fichero se escribía con el comando a medias y lo que aparecía al lado era un
+panel con un error raro. `flow run` además escribe fuera del buzón y mueve el
+fichero dentro de un tirón, así que flow no puede leerlo a medio escribir.
+
 **Lo que flow no puede hacer** es obligar a un agente de terceros a usarlo:
 puede ofrecer el mecanismo y anunciarlo, pero no meterse en el prompt de otro
 programa. Para que lo use de verdad, dile en su fichero de contexto —el
@@ -256,10 +293,12 @@ programa. Para que lo use de verdad, dile en su fichero de contexto —el
 
 ```markdown
 Si la variable FLOW está puesta, estás dentro del orquestador flow. Lee
-FLOW_HOWTO. Todo proceso que dure o que interese mirar (tests, servidores,
-builds, subagentes) lánzalo escribiendo su comando en un fichero dentro de
-FLOW_INBOX, para que se vea en una terminal de esta misma sesión, en vez de
-ejecutarlo donde nadie lo ve.
+FLOW_HOWTO. Todo proceso que dure o que interese mirar (servidores, suites de
+tests largas, builds, seguir un log, subagentes) lánzalo con `flow run <comando>`
+—o "%FLOW_BIN%" run <comando>— para que se vea en una terminal de esta misma
+sesión en vez de ejecutarlo donde nadie lo ve. Ojo: la salida de `flow run` no
+vuelve a ti, se queda en su panel, así que lo que necesites leer para seguir
+trabajando ejecútalo como siempre.
 ```
 
 Un aviso: quien pueda escribir en el buzón puede hacer que flow lance procesos.
@@ -578,6 +617,7 @@ Dónde se cuidó de verdad:
 ```
 src/
   main.rs     arranque de eframe y opciones de ventana
+  run.rs      `flow run`: pedir un panel desde dentro de una sesión
   app.rs      estado global, bucle de frame, escala automática y buzones
   session.rs  una sesión: sus paneles, su directorio y el entorno que ven
   agent.rs    un panel = un proceso en un PTY, con dos hilos y heurística de estado
@@ -636,7 +676,16 @@ casos que importan.
   proporción de un corte arrastrando su borde. Un panel tampoco se puede mover
   de una sesión a otra.
 - **Lo que se pide al buzón con la sesión llena se descarta**, y desde dentro
-  del agente no hay forma de enterarse: flow no le contesta.
+  del agente no hay forma de enterarse: flow no le contesta. `flow run` tampoco
+  puede avisar, porque el que descarta es flow y para entonces el subcomando ya
+  terminó; por eso dice «pedido un panel» y no «abierto».
+- **Lo que el agente ejecuta con sus propias herramientas no se ve como un
+  panel.** Ese proceso lo lanza él, como hijo suyo y con la salida enganchada a
+  sí mismo; flow solo ve los bytes que el agente escribe en su PTY, así que lo
+  verás como el agente decida enseñártelo. Para verlo de verdad tiene que
+  pedirlo con `flow run`. Meterse en medio exigiría interceptarle la creación de
+  procesos —enganchar `CreateProcess`, inyectar una DLL, suplantarle el shell— y
+  eso es otra clase de programa.
 
 ## Mejoras propuestas de interfaz
 

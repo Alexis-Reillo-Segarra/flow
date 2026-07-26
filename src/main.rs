@@ -7,12 +7,20 @@ mod config;
 mod logo;
 mod presets;
 mod projects;
+mod run;
 mod session;
 mod term;
 mod theme;
 mod ui;
 
 fn main() -> eframe::Result<()> {
+    // `flow run` y compañía, antes que nada: son subcomandos que escriben una
+    // línea y se van, y no tienen por qué pagar el arranque de una ventana ni
+    // leer la configuración de temas de nadie.
+    if let run::Cli::Done(code) = run::cli() {
+        std::process::exit(code);
+    }
+
     // Los temas, antes de que nada pinte: la lista es los incluidos más los que
     // haya escritos en el fichero de configuración, y se instala una sola vez
     // porque un índice de tema tiene que significar lo mismo durante toda la

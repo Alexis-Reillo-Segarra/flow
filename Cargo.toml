@@ -12,6 +12,12 @@ portable-pty = "0.9"
 vte = "0.15"
 anyhow = "1"
 
+# Solo para engancharse a la consola del que llamó a `flow run`: el binario es
+# de subsistema gráfico y sin esto no se vería lo que imprime. Ya venía en el
+# árbol de dependencias, así que no añade nada que compilar.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
 [profile.release]
 opt-level = 3
 lto = true
