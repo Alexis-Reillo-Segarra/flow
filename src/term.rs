@@ -17,14 +17,44 @@ use vte::{Params, Perform};
 
 use crate::theme;
 
+/// La tinta que pide una celda: o un slot de la paleta, o un color exacto.
+///
+/// La distinción no es un capricho de tipos, es lo que hace que **cambiar de
+/// tema repinte lo que ya está en pantalla**. Aquí antes se guardaba el
+/// `Color32` ya resuelto, así que las 5000 líneas del scrollback se quedaban
+/// pintadas con la paleta que estuviera puesta cuando llegaron, y al cambiar de
+/// tema la salida vieja seguía siendo del tema viejo hasta que el proceso
+/// escribiera otra vez.
+///
+/// Un proceso que pide "rojo" no pide `#f2696e`: pide el rojo de quien lo esté
+/// mirando. El que sí pide un color exacto es el truecolor, y ese se guarda tal
+/// cual —traducirlo a un slot sería inventarse lo que dijo—.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Ink {
+    /// Un índice de la paleta de 256, que incluye los 16 con nombre.
+    Ansi(u8),
+    /// Un color exacto, de `SGR 38;2;r;g;b`.
+    Rgb(Color32),
+}
+
+impl Ink {
+    /// El color que le toca hoy.
+    pub fn color(self) -> Color32 {
+        match self {
+            Ink::Ansi(i) => theme::ansi256(i),
+            Ink::Rgb(c) => c,
+        }
+    }
+}
+
 /// Atributos gráficos activos. Copiado en cada celda que se escribe.
 ///
 /// El `Default` —sin color y sin atributos— es el estado tras `SGR 0`, y es
 /// además el que tiene la inmensa mayoría de las celdas de una pantalla.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Pen {
-    pub fg: Option<Color32>,
-    pub bg: Option<Color32>,
+    pub fg: Option<Ink>,
+    pub bg: Option<Ink>,
     pub bold: bool,
     pub dim: bool,
     pub underline: bool,
@@ -36,9 +66,9 @@ impl Pen {
     /// negrita (sube a la variante brillante) y atenuado.
     pub fn fg_color(&self) -> Color32 {
         if self.inverse {
-            return self.bg.unwrap_or(theme::BG);
+            return self.bg.map_or(theme::pal().bg, Ink::color);
         }
-        let base = self.fg.unwrap_or(theme::TEXT);
+        let base = self.fg.map_or(theme::pal().text, Ink::color);
         if self.dim {
             base.gamma_multiply(0.55)
         } else {
@@ -49,9 +79,9 @@ impl Pen {
     /// Color de fondo resuelto, o `None` si es transparente.
     pub fn bg_color(&self) -> Option<Color32> {
         if self.inverse {
-            Some(self.fg.unwrap_or(theme::TEXT))
+            Some(self.fg.map_or(theme::pal().text, Ink::color))
         } else {
-            self.bg
+            self.bg.map(Ink::color)
         }
     }
 }
@@ -380,12 +410,12 @@ impl Term {
                 }
                 24 => self.pen.underline = false,
                 27 => self.pen.inverse = false,
-                30..=37 => self.pen.fg = Some(theme::ANSI[(code - 30) as usize]),
+                30..=37 => self.pen.fg = Some(Ink::Ansi(code as u8 - 30)),
                 39 => self.pen.fg = None,
-                40..=47 => self.pen.bg = Some(theme::ANSI[(code - 40) as usize]),
+                40..=47 => self.pen.bg = Some(Ink::Ansi(code as u8 - 40)),
                 49 => self.pen.bg = None,
-                90..=97 => self.pen.fg = Some(theme::ANSI[(code - 90 + 8) as usize]),
-                100..=107 => self.pen.bg = Some(theme::ANSI[(code - 100 + 8) as usize]),
+                90..=97 => self.pen.fg = Some(Ink::Ansi(code as u8 - 90 + 8)),
+                100..=107 => self.pen.bg = Some(Ink::Ansi(code as u8 - 100 + 8)),
                 // Forma con parámetros separados por `;`: 38;5;n / 38;2;r;g;b.
                 38 | 48 => {
                     let mode = flat.get(i + 1).and_then(|p| p.first()).copied();
@@ -393,7 +423,7 @@ impl Term {
                         Some(5) => (
                             flat.get(i + 2)
                                 .and_then(|p| p.first())
-                                .map(|v| theme::ansi256(*v as u8)),
+                                .map(|v| Ink::Ansi(*v as u8)),
                             3,
                         ),
                         Some(2) => {
@@ -403,7 +433,7 @@ impl Term {
                                     .copied()
                                     .unwrap_or(0) as u8
                             };
-                            (Some(Color32::from_rgb(get(2), get(3), get(4))), 5)
+                            (Some(Ink::Rgb(Color32::from_rgb(get(2), get(3), get(4)))), 5)
                         }
                         _ => (None, 1),
                     };
@@ -433,9 +463,9 @@ fn is_blank(row: &Row) -> bool {
 }
 
 /// Decodifica `5;n` / `2;r;g;b` cuando vienen como subparámetros.
-fn color_from_parts(parts: &[u16]) -> Option<Color32> {
+fn color_from_parts(parts: &[u16]) -> Option<Ink> {
     match parts.first()? {
-        5 => parts.get(1).map(|v| theme::ansi256(*v as u8)),
+        5 => parts.get(1).map(|v| Ink::Ansi(*v as u8)),
         2 => {
             // Algunas apps emiten 2:colorspace:r:g:b. Si hay 4 valores, el
             // primero es el espacio de color y se ignora.
@@ -444,11 +474,16 @@ fn color_from_parts(parts: &[u16]) -> Option<Color32> {
             } else {
                 parts.get(1..4)?
             };
-            Some(Color32::from_rgb(rgb[0] as u8, rgb[1] as u8, rgb[2] as u8))
+            Some(Ink::Rgb(Color32::from_rgb(
+                rgb[0] as u8,
+                rgb[1] as u8,
+                rgb[2] as u8,
+            )))
         }
         _ => None,
     }
 }
+
 impl Perform for Term {
     fn print(&mut self, c: char) {
         if self.wrap_pending {
@@ -794,7 +829,11 @@ mod tests {
         let mut term = Term::new(20, 2, 100);
         feed(&mut term, b"\x1b[31mrojo\x1b[0mnormal");
         let row = term.line(0).unwrap();
-        assert_eq!(row[0].pen.fg, Some(crate::theme::ANSI[1]));
+        // Se guarda el slot, no el color: lo que el proceso pidió es "el rojo
+        // del terminal", y cuál sea ese rojo lo decide el tema que esté puesto
+        // cuando se dibuje.
+        assert_eq!(row[0].pen.fg, Some(Ink::Ansi(1)));
+        assert_eq!(row[0].pen.fg_color(), crate::theme::pal().ansi[1]);
         assert_eq!(row[4].pen.fg, None);
     }
 
@@ -802,10 +841,33 @@ mod tests {
     fn el_color_verdadero_llega_entero() {
         let mut term = Term::new(20, 2, 100);
         feed(&mut term, b"\x1b[38;2;18;52;86mx");
+        // El truecolor sí se guarda tal cual: quien lo emite no pide un slot,
+        // pide ese color, y ningún tema tiene derecho a cambiárselo.
         assert_eq!(
             term.line(0).unwrap()[0].pen.fg,
-            Some(egui::Color32::from_rgb(18, 52, 86))
+            Some(Ink::Rgb(egui::Color32::from_rgb(18, 52, 86)))
         );
+    }
+
+    #[test]
+    fn cambiar_de_tema_repinta_lo_que_ya_estaba_escrito() {
+        // Es lo que se gana guardando el slot: el scrollback entero se lee con
+        // la paleta de ahora, no con la que hubiera cuando llegó el texto.
+        let mut term = Term::new(20, 2, 100);
+        feed(&mut term, b"\x1b[31mrojo");
+        let pen = term.line(0).unwrap()[0].pen;
+
+        let antes = crate::theme::active();
+        let (a, b) = (0, crate::theme::themes().len() - 1);
+        crate::theme::set_active(a);
+        let rojo_a = pen.fg_color();
+        crate::theme::set_active(b);
+        let rojo_b = pen.fg_color();
+        crate::theme::set_active(antes);
+
+        assert_eq!(rojo_a, crate::theme::themes()[a].ansi[1]);
+        assert_eq!(rojo_b, crate::theme::themes()[b].ansi[1]);
+        assert_ne!(rojo_a, rojo_b, "los dos temas tenían el mismo rojo ANSI");
     }
 
     #[test]

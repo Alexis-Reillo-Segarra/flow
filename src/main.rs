@@ -3,6 +3,7 @@
 
 mod agent;
 mod app;
+mod config;
 mod logo;
 mod presets;
 mod projects;
@@ -12,6 +13,29 @@ mod theme;
 mod ui;
 
 fn main() -> eframe::Result<()> {
+    // Los temas, antes de que nada pinte: la lista es los incluidos más los que
+    // haya escritos en el fichero de configuración, y se instala una sola vez
+    // porque un índice de tema tiene que significar lo mismo durante toda la
+    // ejecución.
+    //
+    // Lo que no se entienda del fichero se dice por la salida de errores y no
+    // para nada. Es visible para quien lanzó flow desde una terminal —que es
+    // quien acaba de editar el fichero— y no le estropea la ventana a nadie más.
+    let base = theme::builtin();
+    let cfg = config::load(&base);
+    let mut themes = base;
+    themes.extend(cfg.customs);
+    theme::install_themes(themes);
+    for aviso in &cfg.warnings {
+        eprintln!("flow: config: {aviso}");
+    }
+    if let Some(name) = cfg.theme.as_deref() {
+        match theme::index_of(name) {
+            Some(i) => theme::set_active(i),
+            None => eprintln!("flow: config: no hay ningún tema que se llame '{name}'"),
+        }
+    }
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("flow")

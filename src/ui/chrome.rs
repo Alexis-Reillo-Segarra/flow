@@ -76,12 +76,12 @@ pub fn titlebar(ui: &mut Ui, current: Option<&Session>) -> Option<Action> {
                     ui.label(
                         egui::RichText::new(crate::projects::name_of(&session.cwd))
                             .font(theme::sans(theme::SANS_SM))
-                            .color(theme::TEXT_DIM),
+                            .color(theme::pal().text_dim),
                     );
                     ui.label(
                         egui::RichText::new(&session.cwd)
                             .font(theme::mono(theme::MONO_XS))
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::pal().text_faint),
                     )
                     .on_hover_text("el directorio que comparten los paneles de esta sesión");
                 }
@@ -109,9 +109,9 @@ pub fn titlebar(ui: &mut Ui, current: Option<&Session>) -> Option<Action> {
                             egui::RichText::new(format!("{}/{}", session.panes.len(), MAX_PANES))
                                 .font(theme::mono(theme::MONO_XS))
                                 .color(if full {
-                                    theme::TEXT_DIM
+                                    theme::pal().text_dim
                                 } else {
-                                    theme::TEXT_FAINT
+                                    theme::pal().text_faint
                                 }),
                         )
                         .on_hover_text(if full {
@@ -122,7 +122,7 @@ pub fn titlebar(ui: &mut Ui, current: Option<&Session>) -> Option<Action> {
 
                         ui.add_space(6.0);
                         if !full
-                            && widgets::button(ui, "+", theme::TEXT_DIM)
+                            && widgets::button(ui, "+", theme::pal().text_dim)
                                 .on_hover_text(
                                     "Añadir una terminal o un agente a esta sesión (Ctrl-T)",
                                 )
@@ -157,7 +157,7 @@ fn mark(ui: &mut Ui, size_pt: f32) {
             // cerrojo del contexto y se quedaría bloqueado.
             let t = ctx.load_texture(
                 format!("flow-mark-{size_px}"),
-                crate::logo::color_image(size_px, theme::ACCENT),
+                crate::logo::color_image(size_px, theme::pal().accent),
                 egui::TextureOptions::NEAREST,
             );
             ctx.data_mut(|d| d.insert_temp(id, t.clone()));
@@ -179,9 +179,9 @@ fn window_button(ui: &mut Ui, kind: Btn) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
 
     let hover_bg = if kind == Btn::Close {
-        theme::RED.gamma_multiply(0.85)
+        theme::pal().red.gamma_multiply(0.85)
     } else {
-        theme::SEL
+        theme::pal().sel
     };
     if resp.hovered() {
         ui.painter().rect_filled(rect, CornerRadius::ZERO, hover_bg);
@@ -192,10 +192,10 @@ fn window_button(ui: &mut Ui, kind: Btn) -> Response {
         if kind == Btn::Close {
             Color32::WHITE
         } else {
-            theme::TEXT_HI
+            theme::pal().text_hi
         }
     } else {
-        theme::TEXT_DIM
+        theme::pal().text_dim
     };
     let stroke = Stroke::new(1.0, fg);
     // Centro redondeado al píxel: si cae en medio, las líneas de 1 px se ven
@@ -329,7 +329,7 @@ pub fn window_border(ctx: &Context) {
     .rect_stroke(
         ctx.content_rect(),
         CornerRadius::ZERO,
-        Stroke::new(1.0, theme::LINE_HI),
+        Stroke::new(1.0, theme::pal().line_hi),
         StrokeKind::Inside,
     );
 }

@@ -9,7 +9,7 @@ use crate::agent::Agent;
 use crate::presets;
 use crate::projects::Projects;
 use crate::session::{self, Session};
-use crate::ui::{bar, chrome, grain, prompt, spawn, tiles, Action, Dir};
+use crate::ui::{bar, chrome, grain, prompt, spawn, themes, tiles, Action, Dir};
 
 /// Tamaño con el que nace el PTY. El primer frame lo corrige al tamaño real del
 /// panel; esto solo evita que el proceso arranque creyendo que la terminal es de
@@ -42,6 +42,12 @@ pub struct Flow {
     /// que un id identifica una cosa y solo una en toda la app.
     next_id: u64,
     form: spawn::Form,
+    /// El selector de temas, cerrado casi siempre.
+    picker: themes::Picker,
+    /// Con qué tema se armó el estilo de egui que hay puesto. Es lo que hace que
+    /// cambiar de tema se note en los widgets de egui y no solo en lo que
+    /// pintamos a mano: si no coincide con el activo, se vuelve a instalar.
+    styled: usize,
     /// Qué agentes hay instalados. Se detecta al arrancar, no cada frame.
     installed: presets::Installed,
     /// Los directorios en los que ya has trabajado, para no volver a teclear la
@@ -72,6 +78,8 @@ impl Flow {
             current: None,
             next_id: 1,
             form: spawn::Form::new(home),
+            picker: themes::Picker::default(),
+            styled: crate::theme::active(),
             installed: presets::Installed::detect(),
             projects: Projects::load(),
             input: String::new(),
@@ -95,6 +103,9 @@ impl Flow {
             for i in 1..n.parse().unwrap_or(1usize) {
                 self.add_pane(0, format!("panel-{i}"), spawn::shell().to_owned(), true);
             }
+        }
+        if std::env::var("FLOW_PICKER").is_ok() {
+            self.apply(Action::OpenThemes);
         }
         if let Ok(kind) = std::env::var("FLOW_FORM") {
             let kind = if kind == "pane" {
@@ -241,6 +252,19 @@ impl Flow {
             }
             Action::CancelSpawn => self.form.close(),
             Action::ConfirmSpawn => self.launch(),
+            Action::OpenThemes => self.picker.show(),
+            Action::PickTheme(i) => self.picker.pick(i),
+            Action::ConfirmThemes => {
+                // Se escribe al aceptar y no al ir probando: el fichero es del
+                // usuario y guarda además sus temas propios, así que no se toca
+                // una vez por tecla mientras recorre la lista.
+                crate::config::save_theme(&crate::theme::themes()[self.picker.selected()].name);
+                self.picker.close();
+            }
+            Action::CancelThemes => {
+                self.picker.pick(self.picker.previous());
+                self.picker.close();
+            }
         }
     }
 
@@ -371,7 +395,7 @@ impl Flow {
     /// El reparto es el de un gestor de ventanas: **Ctrl** se mueve entre
     /// sesiones y **Alt**, dentro de la que estás mirando.
     fn shortcuts(&mut self, ctx: &Context) -> Option<Action> {
-        if self.form.open {
+        if self.form.open || self.picker.open {
             return None;
         }
         ctx.input(|i| {
@@ -379,6 +403,12 @@ impl Flow {
                 return Some(Action::OpenSpawn(spawn::Kind::Session));
             }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::T) {
+                // Con Shift, el tema. Va con Ctrl-T porque es lo mismo que se
+                // teclea para "abrir algo dentro de flow", y el tema es de la
+                // app entera: la tecla lo dice.
+                if i.modifiers.shift {
+                    return Some(Action::OpenThemes);
+                }
                 return Some(Action::OpenSpawn(spawn::Kind::Pane));
             }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::W) {
@@ -463,7 +493,7 @@ fn auto_scale(monitor: Option<Vec2>, dpi: f32) -> f32 {
 
 impl eframe::App for Flow {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        let [r, g, b, a] = crate::theme::BG.to_array();
+        let [r, g, b, a] = crate::theme::pal().bg.to_array();
         [
             r as f32 / 255.0,
             g as f32 / 255.0,
@@ -485,6 +515,16 @@ impl eframe::App for Flow {
         if (want - self.scale).abs() > f32::EPSILON {
             ctx.set_pixels_per_point(want);
             self.scale = want;
+        }
+
+        // El estilo de egui lleva colores dentro —el relleno de un campo, el
+        // borde de un botón—, así que un cambio de tema hay que volver a
+        // instalárselo. Se compara con el activo en vez de hacerlo desde donde
+        // se cambia el tema porque aquí es donde hay `ctx`, y porque así también
+        // queda cubierto un tema que llegue de otro sitio.
+        if self.styled != crate::theme::active() {
+            crate::theme::apply_style(ctx);
+            self.styled = crate::theme::active();
         }
 
         // Drenar los PTYs de **todas** las sesiones, no solo de la que se ve: un
@@ -570,6 +610,9 @@ impl eframe::App for Flow {
 
         let full = self.current().is_some_and(|s| s.is_full());
         if let Some(a) = spawn::show(ctx, &mut self.form, &self.installed, &self.projects, full) {
+            action = Some(a);
+        }
+        if let Some(a) = themes::show(ctx, &self.picker) {
             action = Some(a);
         }
 

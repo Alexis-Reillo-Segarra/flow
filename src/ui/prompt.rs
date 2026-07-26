@@ -47,9 +47,9 @@ pub fn show(
                         egui::RichText::new(a.name.to_uppercase())
                             .font(theme::sans(theme::SANS_SM))
                             .color(if alive {
-                                theme::TEXT_DIM
+                                theme::pal().text_dim
                             } else {
-                                theme::TEXT_FAINT
+                                theme::pal().text_faint
                             }),
                     );
                 }
@@ -57,9 +57,9 @@ pub fn show(
                     egui::RichText::new("›")
                         .font(theme::mono(theme::MONO_SM))
                         .color(if alive {
-                            theme::ACCENT_TEXT
+                            theme::pal().accent_text
                         } else {
-                            theme::TEXT_FAINT
+                            theme::pal().text_faint
                         }),
                 );
 
@@ -70,7 +70,7 @@ pub fn show(
                 let resp = ui.add(
                     egui::TextEdit::singleline(input)
                         .font(theme::mono(theme::MONO_SM))
-                        .text_color(theme::TEXT)
+                        .text_color(theme::pal().text)
                         .frame(egui::Frame::NONE)
                         .desired_width(field_w)
                         .hint_text(
@@ -80,7 +80,7 @@ pub fn show(
                                 Some(_) => "el proceso terminó",
                             })
                             .font(theme::mono(theme::MONO_SM))
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::pal().text_faint),
                         )
                         .interactive(alive),
                 );
@@ -106,22 +106,22 @@ pub fn show(
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     if alive {
-                        if widgets::button(ui, "KILL", theme::RED)
+                        if widgets::button(ui, "KILL", theme::pal().red)
                             .on_hover_text("Matar el proceso")
                             .clicked()
                         {
                             action = Some(Action::Kill(agent.id));
                         }
-                        if widgets::button(ui, "ESC", theme::TEXT_DIM).clicked() {
+                        if widgets::button(ui, "ESC", theme::pal().text_dim).clicked() {
                             action = Some(Action::SendRaw(vec![0x1b]));
                         }
-                        if widgets::button(ui, "^C", theme::AMBER)
+                        if widgets::button(ui, "^C", theme::pal().amber)
                             .on_hover_text("Enviar Ctrl-C")
                             .clicked()
                         {
                             action = Some(Action::SendRaw(vec![0x03]));
                         }
-                    } else if widgets::button(ui, "RESTART", theme::ACCENT_TEXT).clicked() {
+                    } else if widgets::button(ui, "RESTART", theme::pal().accent_text).clicked() {
                         action = Some(Action::Restart(agent.id));
                     }
                 });

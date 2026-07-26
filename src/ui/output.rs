@@ -49,12 +49,12 @@ pub fn surface(ui: &mut Ui, agent: &mut Agent, focused: bool, settled: bool, tim
         None
     } else if focused {
         ui.ctx().request_repaint_after(Duration::from_millis(120));
-        ((time * 1.6).fract() < 0.55).then_some(theme::ACCENT_TEXT)
+        ((time * 1.6).fract() < 0.55).then_some(theme::pal().accent_text)
     } else {
         // En un panel sin foco el cursor no parpadea: ocho cursores parpadeando
         // a destiempo es justo el ruido que esta interfaz intenta no tener. Se
         // queda como una marca apagada que dice por dónde va.
-        Some(theme::ACCENT_TEXT.gamma_multiply(0.3))
+        Some(theme::pal().accent_text.gamma_multiply(0.3))
     };
 
     ui.spacing_mut().item_spacing.y = 0.0;
@@ -134,7 +134,7 @@ fn line_job(cells: &[Cell], font: &FontId, cursor: Option<(usize, Color32)>) -> 
         }
 
         let (fg, bg) = match cursor {
-            Some((_, block)) if is_cursor => (theme::BG, block),
+            Some((_, block)) if is_cursor => (theme::pal().bg, block),
             _ => (
                 pen.fg_color(),
                 pen.bg_color().unwrap_or(Color32::TRANSPARENT),

@@ -2,14 +2,45 @@
 //!
 //! # Color
 //!
-//! Tres colores llevan el peso: **negro puro** de fondo, **gris** en las líneas
-//! que separan las zonas y **verde** para la marca, el foco y el cursor. No hay
+//! Tres colores llevan el peso: el **fondo**, el **gris** de las líneas que
+//! separan las zonas y el **acento** de la marca, el foco y el cursor. No hay
 //! rellenos de color ni tarjetas grises: la estructura de la interfaz se lee
 //! por las divisorias de 1 px, no por bloques de tono.
 //!
 //! Aparte de esos tres, hay cuatro colores que solo hablan de estado —verde,
 //! ámbar, rojo, gris— y nunca se usan de decoración. Si ves color en flow,
 //! significa algo.
+//!
+//! # Temas
+//!
+//! La paleta ya no es fija: es un dato, `Palette`, y hay varios. El de casa
+//! —`flow`, negro OLED y verde de marca— sigue siendo el que sale de fábrica, y
+//! al lado van cuatro temas conocidos para quien ya tenga el escritorio de un
+//! color. Se cambia en caliente con `Ctrl-Shift-T` y se puede escribir uno
+//! propio en el fichero de configuración (ver `crate::config`).
+//!
+//! **Un tema no es una lista de gustos: es un contrato**, y los tests de este
+//! módulo lo recorren entero **para todos los temas incluidos**, no solo para el
+//! activo. Un tema entra si:
+//!
+//! 1. Sus cuatro niveles de texto cumplen 4,5:1 contra **su** fondo, y también
+//!    atenuados —con `DIM_INACTIVE`, el nivel más tenue de un panel sin foco es
+//!    el peor caso real de la interfaz—.
+//! 2. Su acento tiene dos caras, una de trazo (≥3:1) y una de texto (≥4,5:1),
+//!    **con el mismo tono**, para que se lean como el mismo color y no como dos.
+//! 3. Sus cuatro colores de estado cumplen 4,5:1 y se distinguen entre sí por
+//!    tono, no solo por claridad: quien no separe rojo de verde tiene que poder
+//!    separarlos igual.
+//! 4. Sus slots ANSI conservan su nombre —el cian del tema es cian— y ninguno
+//!    de los dieciséis es exactamente el acento: si lo fuera, lo que dice flow
+//!    y lo que escribe un proceso saldrían del mismo color.
+//!
+//! De ahí salen las únicas licencias que se han tomado con las paletas
+//! originales: donde un tono del tema de origen no llegaba a 4,5:1 sobre su
+//! propio fondo —el rojo de Gruvbox y el de Nord— se ha aclarado lo justo. El
+//! contrato manda sobre la fidelidad, porque un rojo que no se lee no avisa de
+//! nada. Lo mismo con algún "cian" que en su tema tira a verde: se le empuja al
+//! azul lo justo para que el slot 6 siga significando cian.
 //!
 //! # Tipografía
 //!
@@ -27,63 +58,38 @@
 //! ser un número entero. Aquí hubo antes dos fuentes de pixel-art que sí lo
 //! exigían, y de ahí venía la mitad de las reglas raras que ya no están.
 //!
+//! La tipografía **no** es parte del tema, y no es un descuido: las dos familias
+//! van embebidas en el binario, un tema es un fichero de texto y no puede traer
+//! una fuente, y el tamaño ya lo decide el sistema (ver `app::auto_scale`). Un
+//! tema cambia el color.
+//!
 //! # Espacio
 //!
 //! La rejilla de paneles se lee por el **hueco**, no por marcos: `GAP` separa
 //! los paneles entre sí y del borde de la ventana, y es lo que hace que la
-//! pantalla parezca un tiling WM en vez de una tabla.
+//! pantalla parezca un tiling WM en vez de una tabla. Tampoco es parte del tema:
+//! es la forma de la interfaz, y esa no cambia porque cambien los colores.
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use egui::{
     Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style,
     TextStyle,
 };
 
-// ─── Superficies ──────────────────────────────────────────────────────────────
-
-/// Negro OLED. Es el fondo de todo: paneles, barras y terminal.
-///
-/// Negro exacto, no un gris muy oscuro: en un panel OLED, `#000000` es el píxel
-/// **apagado**, y eso es un negro que ninguna otra pantalla sabe dar. Subirlo
-/// aunque fuera un punto —para que se vieran sombras, por ejemplo— lo
-/// encendería entero y se perdería justo lo que lo hace bonito. La profundidad
-/// se consigue por otro lado: ver `HALO`.
-pub const BG: Color32 = Color32::BLACK;
-/// Igual que `BG`. Existe como concepto aparte para que quede claro que las
-/// barras no se distinguen por relleno, sino por su línea divisoria. Los paneles
-/// de la rejilla sí se rellenan con él, y no por color: es lo que deja el grano
-/// del fondo fuera de la ventana.
-pub const PANEL: Color32 = Color32::BLACK;
-/// Campos de texto y cajas: apenas un susurro por encima del negro.
-pub const RAISED: Color32 = Color32::from_rgb(0x0a, 0x0a, 0x0c);
-/// Fila seleccionada.
-pub const SEL: Color32 = Color32::from_rgb(0x14, 0x16, 0x1a);
-/// Hover.
-pub const HOVER: Color32 = Color32::from_rgb(0x0d, 0x0e, 0x11);
-
-/// Las divisorias de 1 px. Son el esqueleto visible de la interfaz.
-///
-/// 2,07:1 contra el negro. Se queda por debajo del 3:1 de la WCAG a propósito:
-/// una divisoria es decoración, no transmite estado ni información, y subirla
-/// más convertiría la rejilla en el elemento más ruidoso de la pantalla. Todo
-/// lo que sí informa —texto, estados, foco— sí cumple AA.
-pub const LINE: Color32 = Color32::from_rgb(0x3c, 0x42, 0x4b);
-/// Divisoria con más presencia: borde exterior y campos con foco. 3,40:1.
-pub const LINE_HI: Color32 = Color32::from_rgb(0x5a, 0x62, 0x6d);
-
 // ─── Espacio ──────────────────────────────────────────────────────────────────
 
 /// Hueco entre paneles y contra el borde de la ventana.
 ///
-/// Es la única unidad de aire de la interfaz: el mismo valor separa un panel
-/// del de al lado y del marco. Un hueco uniforme es lo que hace que la rejilla
-/// se lea como ventanas en mosaico y no como celdas de una tabla.
+/// Es la única unidad de aire de la interfaz: el mismo valor separa un panel del
+/// de al lado y del marco. Un hueco uniforme es lo que hace que la rejilla se
+/// lea como ventanas en mosaico y no como celdas de una tabla.
 ///
 /// Va hacia los 20 de Hyprland, pero no llega ni de lejos: aquí caben ocho
-/// paneles en pantalla y el hueco que en un WM de escritorio es holgura, aquí
-/// se come columnas de terminal. Con cuatro columnas, cada punto de `GAP` son
-/// cinco puntos de ancho que el terminal no ve.
+/// paneles en pantalla y el hueco que en un WM de escritorio es holgura, aquí se
+/// come columnas de terminal. Con cuatro columnas, cada punto de `GAP` son cinco
+/// puntos de ancho que el terminal no ve.
 pub const GAP: f32 = 8.0;
 
 /// Redondeo de las esquinas de un panel.
@@ -94,22 +100,6 @@ pub const GAP: f32 = 8.0;
 /// —botones, campos, marcas de estado— para que el redondeo signifique una cosa
 /// concreta: esto es una ventana. Si lo llevara todo, no distinguiría nada.
 pub const RADIUS: u8 = 6;
-
-/// El halo que despega un panel del fondo, y el del panel con foco.
-///
-/// Son las dos únicas superficies de la interfaz que no significan nada: no
-/// dicen estado, no son texto y no hay que poder leerlas. Por eso van con una
-/// alfa tan baja —se notan sin verse— y por eso son lo único de la paleta que no
-/// pasa por los tests de contraste.
-///
-/// Existen porque sobre `BG` negro OLED una sombra no puede existir: oscurecer
-/// el `#000000` no da nada. La profundidad se da al revés, con luz que se
-/// desvanece hacia fuera. Ver `ui::widgets::panel_halo`.
-pub const HALO: Color32 = Color32::from_rgba_premultiplied(0x0e, 0x0f, 0x12, 0x1c);
-/// El del panel con foco lleva el verde de la marca, como la sombra coloreada
-/// de la ventana activa en Hyprland. No es una señal nueva: es el borde, que se
-/// derrama un poco más allá de su trazo.
-pub const HALO_FOCUS: Color32 = Color32::from_rgba_premultiplied(0x0a, 0x2c, 0x21, 0x30);
 
 /// Cuánto se apaga un panel que no tiene el foco.
 ///
@@ -123,104 +113,408 @@ pub const HALO_FOCUS: Color32 = Color32::from_rgba_premultiplied(0x0a, 0x2c, 0x2
 /// mosaico y se quedan enteros: la estructura se lee igual de nítida en los
 /// ocho, lo que retrocede es lo que hay dentro.
 ///
-/// El 0,90 no está elegido a ojo. Es el punto donde un panel apagado se queda
-/// exactamente en el contraste que tenía toda la interfaz antes de que esto
-/// existiera: los niveles de texto se subieron para pagarlo, así que el
-/// atenuado no oscurece los siete, **aclara el que tiene el foco**.
+/// El 0,90 no está elegido a ojo: es lo que aguanta el nivel de texto más flojo
+/// sin caerse del 4,5:1 de la WCAG, y ahora lo comprueba un test **en todos los
+/// temas**. Si lo bajas, hay temas que dejan de cumplir.
 pub const DIM_INACTIVE: f32 = 0.90;
 
-// ─── Texto ────────────────────────────────────────────────────────────────────
+// ─── La paleta ────────────────────────────────────────────────────────────────
+
+/// Los colores de un tema.
+///
+/// Todo lo que un tema puede cambiar está aquí y solo aquí. Si un color se
+/// escribe a pelo en un módulo de `ui`, ese color no cambia al cambiar de tema y
+/// la promesa se rompe por un sitio: la regla es que de `ui` no sale ningún
+/// `Color32` literal que no venga de `pal()`.
+#[derive(Clone, Debug)]
+pub struct Palette {
+    /// Cómo se llama, tal y como se escribe en el fichero de configuración.
+    pub name: String,
+    /// Una línea sobre de dónde viene. Se lee en el selector.
+    pub about: String,
+
+    // ── Superficies ──
+    /// El fondo de todo: paneles, barras y terminal.
+    pub bg: Color32,
+    /// Igual que `bg` en todos los temas incluidos. Existe como concepto aparte
+    /// porque los paneles de la rejilla sí se rellenan con él, y no por color:
+    /// es lo que deja el grano del fondo fuera de la ventana.
+    pub panel: Color32,
+    /// Campos de texto y cajas: apenas un susurro por encima del fondo.
+    pub raised: Color32,
+    /// Fila seleccionada.
+    pub sel: Color32,
+    /// Hover.
+    pub hover: Color32,
+    /// Las divisorias de 1 px: el esqueleto visible de la interfaz.
+    ///
+    /// Se queda por debajo del 3:1 de la WCAG a propósito, en todos los temas:
+    /// una divisoria es decoración, no transmite estado ni información, y
+    /// subirla más convertiría la rejilla en el elemento más ruidoso de la
+    /// pantalla. Todo lo que sí informa —texto, estados, foco— sí cumple AA.
+    pub line: Color32,
+    /// Divisoria con más presencia: borde exterior y campos con foco.
+    pub line_hi: Color32,
+
+    // ── Profundidad ──
+    /// El halo que despega un panel del fondo.
+    ///
+    /// Él y `halo_focus` son las dos únicas superficies de la interfaz que no
+    /// significan nada: no dicen estado, no son texto y no hay que poder
+    /// leerlas. Por eso van con una alfa tan baja —se notan sin verse— y por eso
+    /// son lo único de la paleta que no pasa por los tests de contraste.
+    ///
+    /// Existen porque sobre un fondo casi negro una sombra no puede existir:
+    /// oscurecer el `#000000` del tema de casa no da nada. La profundidad se da
+    /// al revés, con luz que se desvanece hacia fuera. Ver
+    /// `ui::widgets::panel_halo`.
+    pub halo: Color32,
+    /// El del panel con foco lleva el acento, como la sombra coloreada de la
+    /// ventana activa en Hyprland. No es una señal nueva: es el borde, que se
+    /// derrama un poco más allá de su trazo.
+    pub halo_focus: Color32,
+
+    // ── Texto ──
+    // Los cuatro niveles cumplen AA contra `bg` y también atenuados.
+    pub text: Color32,
+    pub text_hi: Color32,
+    pub text_dim: Color32,
+    /// El nivel más flojo, y el que fija el techo de `DIM_INACTIVE`. Existe para
+    /// dar jerarquía, no para esconder texto: si algo se puede leer, tiene que
+    /// poder leerse.
+    pub text_faint: Color32,
+
+    // ── Marca ──
+    /// El acento **solo como superficie o trazo**: bordes, rellenos, marcos.
+    ///
+    /// Cumple el 3:1 que la WCAG pide a un componente de interfaz, pero puede
+    /// quedarse por debajo del 4,5:1 de un texto. Cuando el acento tiene que ser
+    /// una letra, va `accent_text`.
+    pub accent: Color32,
+    /// La misma marca aclarada, para cuando el acento **es** una letra o un
+    /// glifo fino. Mismo tono que `accent`: se lee como el mismo color, no como
+    /// otro.
+    ///
+    /// También es el extremo claro del degradado del panel con foco. El
+    /// degradado va de una cara del acento a la otra en vez de estrenar un
+    /// tercer color: son los dos tonos que ya existen, comparten tono, y los dos
+    /// pasan el 3:1 que la WCAG le pide a un trazo, así que el borde cumple **en
+    /// todo su recorrido** y no solo en un extremo.
+    pub accent_text: Color32,
+
+    // ── Estados ──
+    // Nunca decoran: si ves uno, significa eso.
+    /// Trabajando (latiendo) y terminado con éxito (sólido).
+    pub green: Color32,
+    /// Bloqueado esperando respuesta. El único estado que reclama atención.
+    pub amber: Color32,
+    /// Terminado con error o imposible de lanzar.
+    pub red: Color32,
+    /// Vivo pero sin actividad. Cumple AA como los demás aunque su papel sea el
+    /// de "no me mires".
+    pub slate: Color32,
+
+    /// Los 16 colores ANSI, armonizados con el tema para que el output de los
+    /// procesos no desentone con el chrome de la app.
+    ///
+    /// Los que tienen nombre propio en la paleta lo reutilizan, pero solo cuando
+    /// el nombre coincide: el cian de aquí es un cian de verdad y no el color de
+    /// la marca. Un proceso que pide cian espera cian, y atarlo al acento
+    /// significaría que cambiar la marca repinta la salida ajena.
+    pub ansi: [Color32; 16],
+}
+
+/// Cuánto se oscurece la cara de texto del acento para sacar la de trazo cuando
+/// un tema solo declara una.
+///
+/// Escalar los tres canales por el mismo factor **no mueve el tono** —es una
+/// propiedad de HSV, no una casualidad—, así que las dos caras del acento salen
+/// del mismo color por construcción y no por haber acertado a ojo con dos
+/// valores. Cada tema incluido usa el suyo: cuanto más claro es su fondo, menos
+/// margen tiene la cara de trazo para bajar sin caerse del 3:1.
+const STROKE_FACE: f32 = 0.70;
+
+/// Cuánto del acento se derrama en el halo del panel con foco.
+const HALO_FACE: f32 = 0.345;
+
+/// El halo neutro. Es el mismo en todos los temas: una luz tan tenue que teñirla
+/// por tema no cambiaría nada que se pueda ver.
+const HALO: Color32 = Color32::from_rgba_premultiplied(0x0e, 0x0f, 0x12, 0x1c);
+
+/// Escala los tres canales por igual, conservando el tono y la alfa.
+fn scaled(c: Color32, k: f32) -> Color32 {
+    let ch = |v: u8| (v as f32 * k).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgba_premultiplied(ch(c.r()), ch(c.g()), ch(c.b()), c.a())
+}
+
+/// El halo del panel con foco a partir del acento: el borde derramándose.
+fn halo_face(accent: Color32) -> Color32 {
+    let c = scaled(accent, HALO_FACE);
+    Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 0x30)
+}
+
+const fn rgb(hex: u32) -> Color32 {
+    Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+}
+
+/// Los 16 slots ANSI de un tema, escritos como se leen.
+fn ansi(slots: [u32; 16]) -> [Color32; 16] {
+    slots.map(rgb)
+}
+
+impl Palette {
+    /// Arma un tema a partir de lo único que de verdad lo distingue.
+    ///
+    /// El resto —la cara de trazo del acento y los dos halos— se deriva, porque
+    /// son cosas que tienen que cumplir una relación con lo anterior y no
+    /// decisiones sueltas: derivarlas es lo que impide que un tema nuevo llegue
+    /// con dos acentos que no comparten tono.
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        name: &str,
+        about: &str,
+        surfaces: [u32; 6],
+        texts: [u32; 4],
+        accent_text: u32,
+        stroke_face: f32,
+        status: [u32; 4],
+        ansi_slots: [u32; 16],
+    ) -> Self {
+        let [bg, raised, sel, hover, line, line_hi] = surfaces;
+        let [text, text_hi, text_dim, text_faint] = texts;
+        let [green, amber, red, slate] = status;
+        let accent_text = rgb(accent_text);
+        let accent = scaled(accent_text, stroke_face);
+        Self {
+            name: name.to_owned(),
+            about: about.to_owned(),
+            bg: rgb(bg),
+            panel: rgb(bg),
+            raised: rgb(raised),
+            sel: rgb(sel),
+            hover: rgb(hover),
+            line: rgb(line),
+            line_hi: rgb(line_hi),
+            halo: HALO,
+            halo_focus: halo_face(accent),
+            text: rgb(text),
+            text_hi: rgb(text_hi),
+            text_dim: rgb(text_dim),
+            text_faint: rgb(text_faint),
+            accent,
+            accent_text,
+            green: rgb(green),
+            amber: rgb(amber),
+            red: rgb(red),
+            slate: rgb(slate),
+            ansi: ansi(ansi_slots),
+        }
+    }
+
+    /// Cambia un color por su nombre en el fichero de configuración.
+    ///
+    /// Es la única puerta por la que entra un tema escrito a mano, así que la
+    /// lista de nombres de aquí **es** el formato del fichero: lo que no esté
+    /// aquí no se puede tocar desde fuera, y `crate::config` avisa de la clave
+    /// que no reconoce en vez de tragársela en silencio.
+    pub fn set(&mut self, key: &str, c: Color32) -> bool {
+        match key {
+            // `bg` mueve también el relleno del panel: son el mismo color en
+            // todos los temas incluidos, y pedirle a alguien que escriba dos
+            // veces el mismo valor solo sirve para que un día no coincidan.
+            "bg" => {
+                self.bg = c;
+                self.panel = c;
+            }
+            "panel" => self.panel = c,
+            "raised" => self.raised = c,
+            "sel" => self.sel = c,
+            "hover" => self.hover = c,
+            "line" => self.line = c,
+            "line_hi" => self.line_hi = c,
+            "text" => self.text = c,
+            "text_hi" => self.text_hi = c,
+            "text_dim" => self.text_dim = c,
+            "text_faint" => self.text_faint = c,
+            // El acento se declara por su cara de texto y la de trazo sale sola:
+            // es la única forma de que compartan tono sin pedirle cuentas a mano
+            // a quien escribe el tema. Quien quiera la otra exacta la pone
+            // después con `accent_stroke`.
+            "accent" => {
+                self.accent_text = c;
+                self.accent = scaled(c, STROKE_FACE);
+                self.halo_focus = halo_face(self.accent);
+            }
+            "accent_stroke" => {
+                self.accent = c;
+                self.halo_focus = halo_face(c);
+            }
+            "green" => self.green = c,
+            "amber" => self.amber = c,
+            "red" => self.red = c,
+            "slate" => self.slate = c,
+            _ => match key
+                .strip_prefix("ansi")
+                .and_then(|n| n.parse::<usize>().ok())
+            {
+                Some(i) if i < 16 => self.ansi[i] = c,
+                _ => return false,
+            },
+        }
+        true
+    }
+}
+
+/// Los temas que vienen dentro del binario.
+///
+/// El primero es el que sale de fábrica. Los otros cuatro son los que ya tiene
+/// puesto medio mundo en su editor; se han portado tono a tono, con las únicas
+/// correcciones que pedía el contraste (ver el comentario del módulo).
+pub fn builtin() -> Vec<Palette> {
+    vec![
+        // El tema de casa: negro OLED y el verde de flow.
+        //
+        // El fondo es `#000000` exacto, y es una decisión, no un valor por
+        // defecto que nadie revisó: en un panel OLED ese valor es el píxel
+        // **apagado**, y eso es un negro que ninguna otra pantalla sabe dar.
+        // Subirlo aunque fuera un punto —para que se vieran sombras, por
+        // ejemplo— lo encendería entero. Los demás temas traen su propio fondo
+        // porque un tema es justo eso; el de casa no lo toca.
+        //
+        // Su factor de trazo, 0,627, es el que ya relacionaba `#30cf97` con
+        // `#1e825f` cuando la paleta era fija: sale el mismo verde de siempre.
+        Palette::new(
+            "flow",
+            "negro OLED y el verde de casa",
+            [0x000000, 0x0a0a0c, 0x14161a, 0x0d0e11, 0x3c424b, 0x5a626d],
+            [0xc6cbd2, 0xffffff, 0x97a0ab, 0x7b838e],
+            0x30cf97,
+            0.627,
+            [0x6ee787, 0xf0b45c, 0xf2696e, 0x7c8695],
+            [
+                0x14161a, 0xf2696e, 0x6ee787, 0xf0b45c, 0x6fa8f5, 0xc792ea, 0x35d6f5, 0xc6cbd2,
+                0x454a52, 0xff8b90, 0x95ffaa, 0xffd082, 0x92c2ff, 0xddb0ff, 0x8de9ff, 0xffffff,
+            ],
+        ),
+        // Catppuccin Mocha. El acento es el mauve de la casa.
+        Palette::new(
+            "catppuccin",
+            "Catppuccin Mocha: malva sobre base azulada",
+            [0x1e1e2e, 0x232338, 0x313244, 0x292940, 0x45475a, 0x6c7086],
+            [0xcdd6f4, 0xf5f5ff, 0xbac2de, 0xa6adc8],
+            0xcba6f7,
+            0.70,
+            [0xa6e3a1, 0xf9e2af, 0xf38ba8, 0x9399b2],
+            [
+                0x45475a, 0xf38ba8, 0xa6e3a1, 0xf9e2af, 0x89b4fa, 0xf5c2e7, 0x94e2d5, 0xbac2de,
+                0x585b70, 0xf7a2bb, 0xb9ebb4, 0xfdecc8, 0xa6c8ff, 0xf9cff0, 0xaeeae0, 0xf5f5ff,
+            ],
+        ),
+        // Gruvbox Dark. El acento **no** es el naranja de la casa, y es la única
+        // desviación de fondo de esta lista: el naranja de Gruvbox y su amarillo
+        // de aviso se quedan a 13° de tono, así que el acento habría dejado de
+        // distinguirse del estado BLOCKED. Se usa el aqua, que está a 100° del
+        // estado más cercano. El rojo se ha aclarado desde `#fb4934`, que sobre
+        // `#282828` se quedaba en 4,29:1.
+        Palette::new(
+            "gruvbox",
+            "Gruvbox Dark: cálido, contrastado, retro",
+            [0x282828, 0x32302f, 0x3c3836, 0x35322f, 0x504945, 0x7c6f64],
+            [0xebdbb2, 0xfbf1c7, 0xd5c4a1, 0xbdae93],
+            0x8ec7b4,
+            0.72,
+            [0x8ec07c, 0xfabd2f, 0xff7b6b, 0xa89984],
+            [
+                0x3c3836, 0xfb4934, 0xb8bb26, 0xfabd2f, 0x83a598, 0xd3869b, 0x6ba896, 0xa89984,
+                0x665c54, 0xff7b6b, 0xcdd44a, 0xffd75f, 0xa3c5bb, 0xe8a7b8, 0x8ecfb8, 0xebdbb2,
+            ],
+        ),
+        // Tokyo Night.
+        Palette::new(
+            "tokyonight",
+            "Tokyo Night: azul noche",
+            [0x1a1b26, 0x1f2233, 0x292e42, 0x24283b, 0x3b4261, 0x565f89],
+            [0xc0caf5, 0xe7eaf7, 0xa9b1d6, 0x8d97c4],
+            0x7aa2f7,
+            0.72,
+            [0x9ece6a, 0xe0af68, 0xf7768e, 0x9099b8],
+            [
+                0x24283b, 0xf7768e, 0x9ece6a, 0xe0af68, 0x82aaff, 0xbb9af7, 0x7dcfff, 0xa9b1d6,
+                0x414868, 0xff899d, 0xc3e88d, 0xffc777, 0x8db0ff, 0xc099ff, 0xb4f9f8, 0xc0caf5,
+            ],
+        ),
+        // Nord. Su fondo es el más claro de la lista, así que es el tema con
+        // menos margen: el rojo se ha aclarado desde `#bf616a`, que sobre
+        // `#2e3440` no llegaba ni a 4:1.
+        Palette::new(
+            "nord",
+            "Nord: frío, gris azulado",
+            [0x2e3440, 0x353c4a, 0x434c5e, 0x3b4252, 0x4c566a, 0x7b88a1],
+            [0xe5e9f0, 0xeceff4, 0xd8dee9, 0xb8c0cf],
+            0x88c0d0,
+            0.72,
+            [0xa3be8c, 0xebcb8b, 0xeba0a8, 0xa7b0c0],
+            [
+                0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xe5e9f0,
+                0x4c566a, 0xd68f97, 0xb5d19c, 0xf0d9a0, 0x9dbbd8, 0xc9a3c2, 0x9fd6d5, 0xeceff4,
+            ],
+        ),
+    ]
+}
+
+// ─── El tema activo ───────────────────────────────────────────────────────────
 //
-// Los cuatro niveles cumplen WCAG AA (4,5:1) contra el negro **y también
-// atenuados**, que es el caso real peor de la interfaz: el nivel más tenue de
-// un panel sin foco. El nivel más flojo existe para dar jerarquía, no para
-// esconder texto: si algo se puede leer, tiene que poder leerse.
-//
-// Los dos niveles de abajo se subieron al añadir `DIM_INACTIVE` porque
-// atenuados ya no llegaban. Al hacerlo el escalón entre ellos quedó además más
-// parejo que antes: ×1,45 · ×1,62 · ×1,63.
+// La lista se arma una vez al arrancar —los incluidos más los del fichero de
+// configuración— y se filtra a `'static`. Es memoria que no se libera, y a
+// propósito: son cinco o seis paletas de 200 bytes que viven lo que vive el
+// proceso, y a cambio `pal()` es una indexación sin cerrojo ni contador, que es
+// lo que hace falta cuando se llama una vez por celda de terminal y por frame.
 
-/// 12,87:1 — atenuado, 10,40:1.
-pub const TEXT: Color32 = Color32::from_rgb(0xc6, 0xcb, 0xd2);
-/// 21:1 — atenuado, 16,83:1.
-pub const TEXT_HI: Color32 = Color32::WHITE;
-/// 7,93:1 — atenuado, 6,50:1.
-pub const TEXT_DIM: Color32 = Color32::from_rgb(0x97, 0xa0, 0xab);
-/// 5,48:1 — el mínimo de la interfaz, y el que fija el techo de `DIM_INACTIVE`:
-/// atenuado se queda en 4,58:1, a un pelo del 4,5:1 de la WCAG.
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x7b, 0x83, 0x8e);
+static THEMES: OnceLock<&'static [Palette]> = OnceLock::new();
+static ACTIVE: AtomicUsize = AtomicUsize::new(0);
 
-// ─── Marca ────────────────────────────────────────────────────────────────────
+/// Instala la lista de temas. Se llama una vez, al arrancar, antes de dibujar
+/// nada. Si ya había una, se queda la primera: dos listas distintas en marcha
+/// significarían que un índice guardado apunta a otro tema.
+pub fn install_themes(list: Vec<Palette>) {
+    let _ = THEMES.set(Box::leak(list.into_boxed_slice()));
+}
 
-/// Verde flow. El color de la marca: logo, foco y selección.
+/// Todos los temas disponibles, en el orden en que se ofrecen.
 ///
-/// No se usa nunca para estados. Si algo lleva el verde de la marca es porque
-/// es flow hablando, no un agente.
-///
-/// 4,41:1 contra el negro. Cumple el 3:1 que la WCAG pide a un componente de
-/// interfaz —un marco, un borde, un relleno— pero se queda por debajo del 4,5:1
-/// de un texto, así que **solo se usa como superficie o trazo**. Cuando el
-/// acento tiene que ser una letra, va `ACCENT_TEXT`.
-pub const ACCENT: Color32 = Color32::from_rgb(0x1e, 0x82, 0x5f);
+/// Si nadie instaló nada —los tests, por ejemplo— salen los incluidos: que la
+/// paleta dependa de haber llamado antes a otra función sería una bomba de
+/// relojería en cuanto alguien pintase algo desde un test.
+pub fn themes() -> &'static [Palette] {
+    THEMES.get_or_init(|| Box::leak(builtin().into_boxed_slice()))
+}
 
-/// La misma marca, aclarada hasta 10,50:1, para cuando el acento es texto.
-///
-/// Mismo tono (159°) y misma saturación que `ACCENT`: se lee como el mismo
-/// color, no como otro. Es el que llevan los rótulos, los glifos finos y el
-/// bloque del cursor, que tiene texto negro encima y por tanto también responde
-/// al mínimo de un texto.
-///
-/// También es el extremo claro del degradado del panel con foco. El degradado
-/// va de una cara del acento a la otra en vez de estrenar un tercer verde: son
-/// los dos tonos que ya existen, comparten tono, y los dos pasan de sobra el
-/// 3:1 que la WCAG le pide a un trazo, así que el borde cumple **en todo su
-/// recorrido** y no solo en un extremo.
-pub const ACCENT_TEXT: Color32 = Color32::from_rgb(0x30, 0xcf, 0x97);
+/// El índice del tema activo.
+pub fn active() -> usize {
+    ACTIVE.load(Ordering::Relaxed).min(themes().len() - 1)
+}
 
-// ─── Estados ──────────────────────────────────────────────────────────────────
+/// Cambia de tema. El índice se recorta a la lista: un tema que ya no está no
+/// puede dejar la interfaz sin colores.
+pub fn set_active(i: usize) {
+    ACTIVE.store(i.min(themes().len() - 1), Ordering::Relaxed);
+}
 
-/// Trabajando (latiendo) y terminado con éxito (sólido).
-pub const GREEN: Color32 = Color32::from_rgb(0x6e, 0xe7, 0x87);
-/// Bloqueado esperando respuesta. El único estado que reclama atención.
-pub const AMBER: Color32 = Color32::from_rgb(0xf0, 0xb4, 0x5c);
-/// Terminado con error o imposible de lanzar.
-pub const RED: Color32 = Color32::from_rgb(0xf2, 0x69, 0x6e);
-/// Vivo pero sin actividad. 5,70:1 — es un color de estado, así que también
-/// tiene que cumplir AA aunque su papel sea el de "no me mires".
-pub const SLATE: Color32 = Color32::from_rgb(0x7c, 0x86, 0x95);
+/// Busca un tema por su nombre, como se escribe en el fichero.
+pub fn index_of(name: &str) -> Option<usize> {
+    let name = name.trim();
+    themes().iter().position(|p| p.name == name)
+}
 
-// ─── Paleta ANSI ──────────────────────────────────────────────────────────────
-
-/// Los 16 colores ANSI, armonizados con la paleta para que el output de los
-/// procesos no desentone con el chrome de la app.
-///
-/// Los que tienen nombre propio en la paleta lo reutilizan, pero solo cuando el
-/// nombre coincide: el cian de aquí es un cian de verdad y no el color de la
-/// marca. Un proceso que pide cian espera cian, y atarlo al acento significaría
-/// que cambiar la marca repinta la salida ajena.
-pub const ANSI: [Color32; 16] = [
-    Color32::from_rgb(0x14, 0x16, 0x1a), // 0 negro
-    RED,                                 // 1 rojo
-    GREEN,                               // 2 verde
-    AMBER,                               // 3 amarillo
-    Color32::from_rgb(0x6f, 0xa8, 0xf5), // 4 azul
-    Color32::from_rgb(0xc7, 0x92, 0xea), // 5 magenta
-    Color32::from_rgb(0x35, 0xd6, 0xf5), // 6 cian
-    TEXT,                                // 7 blanco
-    Color32::from_rgb(0x45, 0x4a, 0x52), // 8 negro brillante
-    Color32::from_rgb(0xff, 0x8b, 0x90), // 9 rojo brillante
-    Color32::from_rgb(0x95, 0xff, 0xaa), // 10 verde brillante
-    Color32::from_rgb(0xff, 0xd0, 0x82), // 11 amarillo brillante
-    Color32::from_rgb(0x92, 0xc2, 0xff), // 12 azul brillante
-    Color32::from_rgb(0xdd, 0xb0, 0xff), // 13 magenta brillante
-    Color32::from_rgb(0x8d, 0xe9, 0xff), // 14 cian brillante
-    Color32::WHITE,                      // 15 blanco brillante
-];
+/// La paleta activa. Todo el color de la interfaz sale de aquí.
+pub fn pal() -> &'static Palette {
+    &themes()[active()]
+}
 
 /// Resuelve un índice de la paleta 256 a color.
 pub fn ansi256(i: u8) -> Color32 {
     match i {
-        0..=15 => ANSI[i as usize],
+        0..=15 => pal().ansi[i as usize],
         16..=231 => {
             // Cubo 6×6×6.
             let i = i - 16;
@@ -314,6 +608,7 @@ fn font_definitions() -> FontDefinitions {
 
 /// Estilo global: esquinas a 0, bordes de 1 px, cero relleno decorativo.
 fn style() -> Style {
+    let p = pal();
     let mut style = Style {
         text_styles: [
             (TextStyle::Heading, sans(SANS_MD)),
@@ -328,19 +623,19 @@ fn style() -> Style {
 
     let v = &mut style.visuals;
     v.dark_mode = true;
-    v.panel_fill = PANEL;
-    v.window_fill = BG;
-    v.extreme_bg_color = BG;
-    v.faint_bg_color = RAISED;
-    v.code_bg_color = RAISED;
-    v.override_text_color = Some(TEXT);
-    v.window_stroke = Stroke::new(1.0, LINE);
+    v.panel_fill = p.panel;
+    v.window_fill = p.bg;
+    v.extreme_bg_color = p.bg;
+    v.faint_bg_color = p.raised;
+    v.code_bg_color = p.raised;
+    v.override_text_color = Some(p.text);
+    v.window_stroke = Stroke::new(1.0, p.line);
     v.window_corner_radius = CornerRadius::ZERO;
     v.menu_corner_radius = CornerRadius::ZERO;
-    v.selection.bg_fill = SEL;
-    v.selection.stroke = Stroke::new(1.0, ACCENT);
+    v.selection.bg_fill = p.sel;
+    v.selection.stroke = Stroke::new(1.0, p.accent);
     // Un enlace es texto, así que le toca la variante clara.
-    v.hyperlink_color = ACCENT_TEXT;
+    v.hyperlink_color = p.accent_text;
 
     // Nada de sombras: aquí la profundidad la da la divisoria, no el desenfoque.
     // Una sombra bajo cada panel convertiría la rejilla en una pila de tarjetas,
@@ -357,22 +652,22 @@ fn style() -> Style {
     ] {
         w.corner_radius = CornerRadius::ZERO;
         w.expansion = 0.0;
-        w.bg_stroke = Stroke::new(1.0, LINE);
-        w.fg_stroke = Stroke::new(1.0, TEXT);
+        w.bg_stroke = Stroke::new(1.0, p.line);
+        w.fg_stroke = Stroke::new(1.0, p.text);
     }
-    v.widgets.noninteractive.bg_fill = PANEL;
-    v.widgets.noninteractive.weak_bg_fill = PANEL;
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
-    v.widgets.inactive.bg_fill = RAISED;
-    v.widgets.inactive.weak_bg_fill = RAISED;
-    v.widgets.hovered.bg_fill = HOVER;
-    v.widgets.hovered.weak_bg_fill = HOVER;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, LINE_HI);
-    v.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT_HI);
-    v.widgets.active.bg_fill = SEL;
-    v.widgets.active.weak_bg_fill = SEL;
-    v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
-    v.widgets.active.fg_stroke = Stroke::new(1.0, TEXT_HI);
+    v.widgets.noninteractive.bg_fill = p.panel;
+    v.widgets.noninteractive.weak_bg_fill = p.panel;
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, p.text_dim);
+    v.widgets.inactive.bg_fill = p.raised;
+    v.widgets.inactive.weak_bg_fill = p.raised;
+    v.widgets.hovered.bg_fill = p.hover;
+    v.widgets.hovered.weak_bg_fill = p.hover;
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, p.line_hi);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0, p.text_hi);
+    v.widgets.active.bg_fill = p.sel;
+    v.widgets.active.weak_bg_fill = p.sel;
+    v.widgets.active.bg_stroke = Stroke::new(1.0, p.accent);
+    v.widgets.active.fg_stroke = Stroke::new(1.0, p.text_hi);
 
     let s = &mut style.spacing;
     s.item_spacing = egui::vec2(6.0, 4.0);
@@ -403,8 +698,16 @@ fn style() -> Style {
 /// Instala fuentes y estilo en el contexto. Se llama una sola vez al arrancar.
 pub fn install(ctx: &Context) {
     ctx.set_fonts(font_definitions());
-    // El mismo estilo en ambos temas: flow es oscuro y punto. Así da igual que
-    // el sistema esté en claro o que el usuario lo cambie en caliente.
+    apply_style(ctx);
+}
+
+/// Vuelve a instalar el estilo con la paleta activa.
+///
+/// Se llama al cambiar de tema, y solo el estilo: las fuentes no dependen del
+/// tema y volver a ponerlas tiraría el atlas de glifos para reconstruirlo igual.
+pub fn apply_style(ctx: &Context) {
+    // El mismo estilo en ambos temas de egui: flow es oscuro y punto. Así da
+    // igual que el sistema esté en claro o que el usuario lo cambie en caliente.
     let style = Arc::new(style());
     ctx.set_style_of(egui::Theme::Dark, style.clone());
     ctx.set_style_of(egui::Theme::Light, style);
@@ -414,11 +717,8 @@ pub fn install(ctx: &Context) {
 mod tests {
     use super::*;
 
-    /// Contraste WCAG 2.1 contra el negro puro, que es el fondo de todo.
-    ///
-    /// Con `BG` negro la fórmula se queda en `(L + 0,05) / 0,05`, así que basta
-    /// con la luminancia relativa del color de delante.
-    fn vs_black(c: Color32) -> f64 {
+    /// Luminancia relativa de la WCAG 2.1.
+    fn luminance(c: Color32) -> f64 {
         let channel = |v: u8| {
             let v = v as f64 / 255.0;
             if v <= 0.04045 {
@@ -427,36 +727,92 @@ mod tests {
                 ((v + 0.055) / 1.055).powf(2.4)
             }
         };
-        let l = 0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b());
-        (l + 0.05) / 0.05
+        0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
+    }
+
+    /// Contraste de `fg` sobre `bg`. Antes bastaba con la luminancia del color
+    /// de delante, porque el fondo era negro puro y la fórmula se quedaba en
+    /// `(L + 0,05) / 0,05`. Con temas de fondo propio hay que hacer la división
+    /// entera.
+    fn contrast(fg: Color32, bg: Color32) -> f64 {
+        let (a, b) = (luminance(fg), luminance(bg));
+        let (hi, lo) = if a > b { (a, b) } else { (b, a) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// El mismo color después de atenuarlo con `DIM_INACTIVE`.
+    ///
+    /// `gamma_multiply` baja también la alfa, así que lo que acaba en pantalla
+    /// no es el color oscurecido sino el color **mezclado con el fondo del
+    /// panel** al 90%. Sobre el negro de flow daba lo mismo —mezclar con negro
+    /// es oscurecer— pero sobre el fondo de un tema con color no, y el test
+    /// tiene que mirar lo que se ve.
+    fn dimmed_over(c: Color32, bg: Color32) -> Color32 {
+        let mix = |f: u8, b: u8| {
+            (f as f32 * DIM_INACTIVE + b as f32 * (1.0 - DIM_INACTIVE)).round() as u8
+        };
+        Color32::from_rgb(mix(c.r(), bg.r()), mix(c.g(), bg.g()), mix(c.b(), bg.b()))
+    }
+
+    fn hue(c: Color32) -> f64 {
+        let (r, g, b) = (
+            c.r() as f64 / 255.0,
+            c.g() as f64 / 255.0,
+            c.b() as f64 / 255.0,
+        );
+        let max = r.max(g).max(b);
+        let d = max - r.min(g).min(b);
+        let h = if d == 0.0 {
+            0.0
+        } else if max == r {
+            60.0 * (((g - b) / d) % 6.0)
+        } else if max == g {
+            60.0 * ((b - r) / d + 2.0)
+        } else {
+            60.0 * ((r - g) / d + 4.0)
+        };
+        (h + 360.0) % 360.0
+    }
+
+    /// Separación de tono, por el lado corto de la rueda.
+    fn hue_gap(a: Color32, b: Color32) -> f64 {
+        let d = (hue(a) - hue(b)).abs();
+        d.min(360.0 - d)
     }
 
     /// Todo lo que es texto en la interfaz. La lista es la que recorren los dos
     /// tests de contraste: un color de texto que no esté aquí es un color que
     /// dentro de dos meses no cumple, porque nadie lo comprueba.
-    const TEXTOS: [(&str, Color32); 9] = [
-        ("TEXT", TEXT),
-        ("TEXT_HI", TEXT_HI),
-        ("TEXT_DIM", TEXT_DIM),
-        ("TEXT_FAINT", TEXT_FAINT),
-        ("ACCENT_TEXT", ACCENT_TEXT),
-        ("GREEN", GREEN),
-        ("AMBER", AMBER),
-        ("RED", RED),
-        ("SLATE", SLATE),
-    ];
+    fn textos(p: &Palette) -> [(&'static str, Color32); 9] {
+        [
+            ("text", p.text),
+            ("text_hi", p.text_hi),
+            ("text_dim", p.text_dim),
+            ("text_faint", p.text_faint),
+            ("accent_text", p.accent_text),
+            ("green", p.green),
+            ("amber", p.amber),
+            ("red", p.red),
+            ("slate", p.slate),
+        ]
+    }
 
     #[test]
     fn todo_lo_que_es_texto_cumple_aa() {
         // 4,5:1 es el mínimo de la WCAG para texto normal. La promesa del README
         // es que **todo** lo legible lo cumple, incluido el nivel más tenue: el
-        // gris flojo existe para dar jerarquía, no para esconder texto.
-        for (nombre, color) in TEXTOS {
-            let ratio = vs_black(color);
-            assert!(
-                ratio >= 4.5,
-                "{nombre} se queda en {ratio:.2}:1, y es texto"
-            );
+        // gris flojo existe para dar jerarquía, no para esconder texto. Y se le
+        // pide a todos los temas: uno que no cumpla no es una preferencia del
+        // usuario, es una interfaz que no se lee.
+        for p in themes() {
+            for (nombre, color) in textos(p) {
+                let ratio = contrast(color, p.bg);
+                assert!(
+                    ratio >= 4.5,
+                    "[{}] {nombre} se queda en {ratio:.2}:1, y es texto",
+                    p.name
+                );
+            }
         }
     }
 
@@ -467,20 +823,23 @@ mod tests {
         // es el texto más flojo que llega a estar en pantalla. Si este test se
         // salta, atenuar deja de ser una decisión de diseño y pasa a ser texto
         // que no se puede leer.
-        for (nombre, color) in TEXTOS {
-            let ratio = vs_black(color.gamma_multiply(DIM_INACTIVE));
-            assert!(
-                ratio >= 4.5,
-                "{nombre} apagado se queda en {ratio:.2}:1 (entero va a {:.2}:1)",
-                vs_black(color)
-            );
+        for p in themes() {
+            for (nombre, color) in textos(p) {
+                let ratio = contrast(dimmed_over(color, p.bg), p.bg);
+                assert!(
+                    ratio >= 4.5,
+                    "[{}] {nombre} apagado se queda en {ratio:.2}:1 (entero va a {:.2}:1)",
+                    p.name,
+                    contrast(color, p.bg)
+                );
+            }
         }
     }
 
-    // Clippy avisa de que la condición es constante, y tiene razón: eso es
-    // justo lo que se busca. El test no comprueba un cálculo, guarda un rango
-    // acordado para que cambiar la constante haga ruido al pasar los tests y no
-    // dos semanas después, cuando alguien note que ya no se leen los paneles.
+    // Clippy avisa de que la condición es constante, y tiene razón: eso es justo
+    // lo que se busca. El test no comprueba un cálculo, guarda un rango acordado
+    // para que cambiar la constante haga ruido al pasar los tests y no dos
+    // semanas después, cuando alguien note que ya no se leen los paneles.
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn el_atenuado_se_queda_del_lado_de_lo_leve() {
@@ -499,69 +858,154 @@ mod tests {
 
     #[test]
     fn el_degradado_del_foco_es_trazo_valido_de_punta_a_punta() {
-        // El borde del panel con foco va de `ACCENT` a `ACCENT_TEXT`. Un
+        // El borde del panel con foco va de `accent` a `accent_text`. Un
         // degradado solo cumple si **los dos** extremos cumplen: pasar por 3:1
         // en un extremo y quedarse corto en el otro es un borde que se apaga por
-        // una esquina. El tono ya lo comprueba el test de las dos caras.
-        for (nombre, color) in [("ACCENT", ACCENT), ("ACCENT_TEXT", ACCENT_TEXT)] {
-            let ratio = vs_black(color);
+        // una esquina.
+        for p in themes() {
+            for (nombre, color) in [("accent", p.accent), ("accent_text", p.accent_text)] {
+                let ratio = contrast(color, p.bg);
+                assert!(
+                    ratio >= 3.0,
+                    "[{}] {nombre} se queda en {ratio:.2}:1 y es un extremo del degradado",
+                    p.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn las_dos_caras_del_acento_son_el_mismo_color() {
+        // Mismo tono; solo cambia la claridad. Salen la una de la otra por
+        // construcción —escalar los tres canales por igual no mueve el tono—,
+        // así que este test protege sobre todo de que alguien ponga las dos a
+        // mano y se le vayan.
+        for p in themes() {
+            let gap = hue_gap(p.accent, p.accent_text);
             assert!(
-                ratio >= 3.0,
-                "{nombre} se queda en {ratio:.2}:1 y es un extremo del degradado"
+                gap < 3.0,
+                "[{}] el acento va a {:.0}° y su texto a {:.0}°",
+                p.name,
+                hue(p.accent),
+                hue(p.accent_text)
             );
         }
     }
 
     #[test]
-    fn el_acento_cumple_lo_de_un_componente_de_interfaz() {
-        // `ACCENT` nunca es una letra: es marco, relleno y trazo. A eso la WCAG
-        // 1.4.11 le pide 3:1, no 4,5:1. Este test es el que impide que alguien
-        // lo use de color de texto sin darse cuenta de que no llega.
-        let ratio = vs_black(ACCENT);
+    fn el_acento_de_flow_cumple_lo_de_un_componente_de_interfaz() {
+        // `accent` nunca es una letra: es marco, relleno y trazo. A eso la WCAG
+        // 1.4.11 le pide 3:1, no 4,5:1, y el verde de casa se queda a propósito
+        // entre los dos: si subiera, `accent_text` sobraría. Es una regla del
+        // tema de flow y no del contrato —un tema con el fondo más claro puede
+        // necesitar un trazo más contrastado—, así que se comprueba solo aquí.
+        let p = &themes()[0];
+        assert_eq!(p.name, "flow", "el tema de casa es el primero de la lista");
+        let ratio = contrast(p.accent, p.bg);
         assert!(ratio >= 3.0, "el acento se queda en {ratio:.2}:1");
         assert!(
             ratio < 4.5,
-            "el acento ya llega a {ratio:.2}:1: si sube, `ACCENT_TEXT` sobra"
+            "el acento ya llega a {ratio:.2}:1: si sube, `accent_text` sobra"
         );
     }
 
     #[test]
-    fn el_cian_ansi_no_es_el_de_la_marca() {
-        // Un proceso que escribe en cian espera cian. Si el slot 6 se atara al
-        // acento, cambiar la marca repintaría la salida ajena.
-        assert_ne!(ANSI[6], ACCENT);
-        assert_ne!(ANSI[6], ACCENT_TEXT);
-        // Cian de verdad: más azul que rojo y con el verde arriba.
-        assert!(ANSI[6].b() > ANSI[6].r() && ANSI[6].g() > ANSI[6].r());
+    fn los_estados_se_distinguen_sin_mirar_el_color() {
+        // El color nunca va solo —cada estado lleva su palabra al lado—, pero
+        // eso no es excusa para que dos estados sean el mismo tono. 25° es lo
+        // mínimo para que se separen de un vistazo en una marca de 6 px.
+        for p in themes() {
+            for (a, na, b, nb) in [
+                (p.green, "verde", p.amber, "ámbar"),
+                (p.amber, "ámbar", p.red, "rojo"),
+                (p.green, "verde", p.red, "rojo"),
+            ] {
+                let gap = hue_gap(a, b);
+                assert!(
+                    gap >= 25.0,
+                    "[{}] {na} y {nb} están a {gap:.0}° y se confunden",
+                    p.name
+                );
+            }
+        }
     }
 
     #[test]
-    fn las_dos_caras_del_acento_son_el_mismo_color() {
-        // Mismo tono; solo cambia la claridad. Si alguien retoca uno de los dos
-        // y se van de tono, dejan de leerse como la misma marca.
-        let hue = |c: Color32| {
-            let (r, g, b) = (
-                c.r() as f64 / 255.0,
-                c.g() as f64 / 255.0,
-                c.b() as f64 / 255.0,
+    fn ningun_slot_ansi_es_el_de_la_marca() {
+        // Un proceso que escribe en cian espera cian, no la marca de flow. Y
+        // vale para los dieciséis: si un slot fuera exactamente el acento,
+        // «esto lo dice flow» y «esto lo ha escrito el proceso» se pintarían del
+        // mismo color, que es la única cosa que el color de acento tiene que
+        // distinguir. Muerde de verdad en los temas portados, donde el color de
+        // la casa suele ser también uno de sus ANSI: ahí se ha movido el slot,
+        // no el acento.
+        for p in themes() {
+            for (i, slot) in p.ansi.iter().enumerate() {
+                assert_ne!(*slot, p.accent, "[{}] el slot {i}", p.name);
+                assert_ne!(*slot, p.accent_text, "[{}] el slot {i}", p.name);
+            }
+            let cyan = p.ansi[6];
+            // Cian de verdad: más azul que rojo y con el verde arriba.
+            assert!(
+                cyan.b() > cyan.r() && cyan.g() > cyan.r(),
+                "[{}] el slot 6 es {cyan:?} y no se lee como cian",
+                p.name
             );
-            let max = r.max(g).max(b);
-            let d = max - r.min(g).min(b);
-            let h = if d == 0.0 {
-                0.0
-            } else if max == r {
-                60.0 * (((g - b) / d) % 6.0)
-            } else if max == g {
-                60.0 * ((b - r) / d + 2.0)
-            } else {
-                60.0 * ((r - g) / d + 4.0)
-            };
-            (h + 360.0) % 360.0
-        };
-        let (a, b) = (hue(ACCENT), hue(ACCENT_TEXT));
-        assert!(
-            (a - b).abs() < 3.0,
-            "el acento va a {a:.0}° y su texto a {b:.0}°"
-        );
+        }
+    }
+
+    #[test]
+    fn los_temas_tienen_nombres_distintos_y_utiles() {
+        // El nombre es lo que se escribe en el fichero de configuración, así que
+        // dos iguales harían inalcanzable al segundo.
+        let list = themes();
+        for (i, p) in list.iter().enumerate() {
+            assert!(!p.name.is_empty(), "un tema sin nombre no se puede elegir");
+            assert!(
+                !p.name.contains(char::is_whitespace),
+                "'{}' lleva espacios y el fichero se lee por palabras",
+                p.name
+            );
+            assert!(!p.about.is_empty(), "[{}] sin descripción", p.name);
+            assert!(
+                list[..i].iter().all(|q| q.name != p.name),
+                "'{}' está repetido",
+                p.name
+            );
+        }
+    }
+
+    #[test]
+    fn cambiar_de_tema_cambia_la_paleta() {
+        let inicial = active();
+        for (i, p) in themes().iter().enumerate() {
+            set_active(i);
+            assert_eq!(pal().name, p.name);
+        }
+        // Un índice imposible no deja la interfaz sin colores.
+        set_active(9999);
+        assert_eq!(active(), themes().len() - 1);
+        set_active(inicial);
+    }
+
+    #[test]
+    fn un_tema_se_puede_retocar_por_el_nombre_de_sus_colores() {
+        let mut p = themes()[0].clone();
+        assert!(p.set("bg", rgb(0x101010)));
+        assert_eq!(p.bg, rgb(0x101010));
+        // `bg` arrastra al panel: son el mismo color y separarlos sin querer
+        // dejaría el grano asomando dentro de la ventana.
+        assert_eq!(p.panel, rgb(0x101010));
+        // El acento se declara una vez y la cara de trazo sale sola, más oscura
+        // y del mismo tono.
+        assert!(p.set("accent", rgb(0x66ccff)));
+        assert_eq!(p.accent_text, rgb(0x66ccff));
+        assert!(hue_gap(p.accent, p.accent_text) < 3.0);
+        assert!(luminance(p.accent) < luminance(p.accent_text));
+        assert!(p.set("ansi15", rgb(0xffffff)));
+        assert_eq!(p.ansi[15], rgb(0xffffff));
+        // Lo que no existe se dice, no se traga.
+        assert!(!p.set("ansi16", rgb(0x000000)));
+        assert!(!p.set("bakcground", rgb(0x000000)));
     }
 }

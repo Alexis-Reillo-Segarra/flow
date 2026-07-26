@@ -269,15 +269,15 @@ fn panel(
         rect,
         theme::RADIUS,
         fade(if focused {
-            theme::HALO_FOCUS
+            theme::pal().halo_focus
         } else {
-            theme::HALO
+            theme::pal().halo
         }),
     );
 
     // Y encima, el negro liso del panel. Es lo que deja el grano del fondo fuera
     // de la ventana: dentro no se lee nunca sobre ruido.
-    painter.rect_filled(rect, radius, fade(theme::PANEL));
+    painter.rect_filled(rect, radius, fade(theme::pal().panel));
 
     // El marco es lo que dice quién tiene el foco: el degradado de la marca el
     // activo, gris los demás. Con el atenuado de arriba son dos señales, y ahí
@@ -291,14 +291,14 @@ fn panel(
             rect,
             theme::RADIUS as f32,
             1.0,
-            fade(theme::ACCENT),
-            fade(theme::ACCENT_TEXT),
+            fade(theme::pal().accent),
+            fade(theme::pal().accent_text),
         );
     } else {
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(1.0, fade(theme::LINE)),
+            Stroke::new(1.0, fade(theme::pal().line)),
             StrokeKind::Inside,
         );
     }
@@ -311,7 +311,7 @@ fn panel(
             vec2(inner.width(), 1.0),
         ),
         CornerRadius::ZERO,
-        fade(theme::LINE),
+        fade(theme::pal().line),
     );
 
     let cy = header.center().y;
@@ -324,9 +324,9 @@ fn panel(
         let close = Rect::from_center_size(pos2(right - 5.0, cy), vec2(13.0, 13.0));
         let resp = ui.interact(close, Id::new(("pane-close", agent.id)), Sense::click());
         let color = if resp.hovered() {
-            theme::RED
+            theme::pal().red
         } else {
-            theme::TEXT_FAINT
+            theme::pal().text_faint
         };
         widgets::draw_cross(&painter, close.center(), 3.0, Stroke::new(1.0, ink(color)));
         resp.widget_info(|| {
@@ -344,7 +344,7 @@ fn panel(
         cy,
         &uptime,
         mono.clone(),
-        ink(theme::TEXT_FAINT),
+        ink(theme::pal().text_faint),
         8.0,
     );
     right = right_text(
@@ -371,7 +371,7 @@ fn panel(
         egui::Align2::LEFT_CENTER,
         format!("{}", index + 1),
         mono,
-        ink(theme::TEXT_FAINT),
+        ink(theme::pal().text_faint),
     );
     // La marca del agente, si el panel es uno conocido. Es lo que hace que en
     // una rejilla de ocho se vea de un golpe cuál es el claude y cuál el shell,
@@ -386,9 +386,9 @@ fn panel(
             ),
             glyph,
             ink(if focused {
-                theme::ACCENT_TEXT
+                theme::pal().accent_text
             } else {
-                theme::TEXT_DIM
+                theme::pal().text_dim
             }),
         );
         name_x += widgets::MARK_SIZE + 6.0;
@@ -397,13 +397,13 @@ fn panel(
         ui,
         &agent.name.to_uppercase(),
         sans,
-        ink(theme::TEXT_HI),
+        ink(theme::pal().text_hi),
         (right - name_x).max(0.0),
     );
     painter.galley(
         pos2(name_x, cy - name.size().y * 0.5),
         name,
-        ink(theme::TEXT_HI),
+        ink(theme::pal().text_hi),
     );
 
     // El panel está pintado a mano de arriba abajo, así que para AccessKit no
@@ -459,7 +459,7 @@ fn panel(
                     ui.label(
                         egui::RichText::new(msg)
                             .font(theme::mono(theme::MONO_SM))
-                            .color(theme::RED),
+                            .color(theme::pal().red),
                     );
                 }
                 None => output::surface(ui, agent, focused, settled, time),

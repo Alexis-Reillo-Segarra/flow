@@ -60,10 +60,10 @@ impl State {
     /// otro está quieto) y la etiqueta, no el tono.
     pub fn color(&self) -> egui::Color32 {
         match self {
-            State::Working | State::Exited(0) => crate::theme::GREEN,
-            State::Blocked => crate::theme::AMBER,
-            State::Idle => crate::theme::SLATE,
-            State::Exited(_) | State::Failed(_) => crate::theme::RED,
+            State::Working | State::Exited(0) => crate::theme::pal().green,
+            State::Blocked => crate::theme::pal().amber,
+            State::Idle => crate::theme::pal().slate,
+            State::Exited(_) | State::Failed(_) => crate::theme::pal().red,
         }
     }
 

@@ -95,7 +95,7 @@ pub fn sidebar(
             // muchas, la lista scrollea y el botón sigue donde estaba.
             ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
                 let label = if narrow { "+" } else { "+  SESIÓN" };
-                if widgets::button(ui, label, theme::ACCENT_TEXT)
+                if widgets::button(ui, label, theme::pal().accent_text)
                     .on_hover_text("Abrir una sesión nueva (Ctrl-N)")
                     .clicked()
                 {
@@ -140,9 +140,9 @@ fn row(
     // que signifique una cosa concreta —esto es una ventana—. Una fila de una
     // lista no lo es.
     if active {
-        painter.rect_filled(rect, CornerRadius::ZERO, theme::SEL);
+        painter.rect_filled(rect, CornerRadius::ZERO, theme::pal().sel);
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::ZERO, theme::HOVER);
+        painter.rect_filled(rect, CornerRadius::ZERO, theme::pal().hover);
     }
 
     // El estado, en una barra vertical pegada al canto izquierdo. En horizontal
@@ -168,9 +168,9 @@ fn row(
             &num,
             mono,
             if active {
-                theme::TEXT_HI
+                theme::pal().text_hi
             } else {
-                theme::TEXT_DIM
+                theme::pal().text_dim
             },
         );
     } else {
@@ -180,14 +180,14 @@ fn row(
             egui::Align2::LEFT_CENTER,
             &num,
             mono,
-            theme::TEXT_FAINT,
+            theme::pal().text_faint,
         );
         let name_x = x + 13.0;
         let sans = theme::sans(theme::SANS_SM);
         let color = if active {
-            theme::TEXT_HI
+            theme::pal().text_hi
         } else {
-            theme::TEXT_DIM
+            theme::pal().text_dim
         };
         let galley = widgets::fit(
             ui,

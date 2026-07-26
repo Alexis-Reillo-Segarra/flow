@@ -81,6 +81,10 @@ embebidas y las dos son OFL, así que se puede redistribuir sin más (ver
   salida en flujo como una TUI a pantalla completa.
 - **Le puedes escribir.** La barra inferior manda texto al panel con el foco, con
   botones para `Ctrl-C` y `ESC`.
+- **Temas.** Cinco incluidos —el negro OLED de casa, Catppuccin, Gruvbox, Tokyo
+  Night y Nord—, se cambian en caliente con `Ctrl-Shift-T` y se pueden escribir
+  los tuyos en un fichero de texto. Ninguno puede dejar la interfaz ilegible:
+  [pasan un contrato de contraste](#temas).
 
 ## Cualquier agente
 
@@ -134,9 +138,83 @@ avisa debajo del campo y el botón pasa a llamarse `CREAR Y LANZAR`, así que la
 carpeta se crea, pero nunca sin que lo hayas leído antes.
 
 La lista se guarda en `%APPDATA%\flow\projects` —o `$XDG_CONFIG_HOME/flow/projects`
-fuera de Windows—, una ruta por línea y la más reciente arriba. Es lo único que
-flow escribe en tu disco aparte de los buzones del temporal, y no es crítico: si
-no se puede escribir, la app funciona igual y simplemente no recuerda.
+fuera de Windows—, una ruta por línea y la más reciente arriba. Junto al fichero
+de [temas](#temas) es lo único que flow escribe en tu disco aparte de los buzones
+del temporal, y no es crítico: si no se puede escribir, la app funciona igual y
+simplemente no recuerda.
+
+## Temas
+
+`Ctrl-Shift-T` abre la lista. Vienen cinco:
+
+| Tema         | Qué es                                                |
+| ------------ | ----------------------------------------------------- |
+| `flow`       | El de casa: negro OLED (`#000000`) y el verde de marca |
+| `catppuccin` | Catppuccin Mocha: malva sobre base azulada            |
+| `gruvbox`    | Gruvbox Dark: cálido, contrastado, retro              |
+| `tokyonight` | Tokyo Night: azul noche                               |
+| `nord`       | Nord: frío, gris azulado                              |
+
+**Moverse por la lista aplica el tema de verdad**, a la app entera y no a una
+miniatura: los paneles, el grano del fondo y la salida de los procesos que ya
+estaban escritos. Un tema se juzga con la terminal llena de texto, y una muestra
+de 60×20 píxeles no dice nada de lo que vas a estar mirando seis horas. `Enter`
+se queda con el que estés probando y `Esc` deja las cosas como estaban, que es lo
+que hace que probar no cueste nada.
+
+### Un tema es un contrato, no una lista de gustos
+
+Los cinco pasan los mismos tests, y **todos los temas** los pasan, no solo el
+activo:
+
+1. Los cuatro niveles de texto cumplen 4,5:1 contra **su** fondo, y también
+   atenuados —con `dim_inactive`, el nivel más tenue de un panel sin foco es el
+   peor caso real de la interfaz—.
+2. El acento tiene dos caras, una de trazo (≥3:1) y una de texto (≥4,5:1), **con
+   el mismo tono**. No se escriben las dos: la de trazo sale de escalar la otra,
+   y escalar los tres canales por igual no mueve el tono.
+3. Los cuatro colores de estado cumplen 4,5:1 y se separan entre sí por tono, no
+   solo por claridad: quien no distinga rojo de verde tiene que poder
+   distinguirlos igual.
+4. Ningún slot ANSI es exactamente el acento, y el cian sigue siendo cian.
+
+De ahí salen las únicas licencias que se han tomado con las paletas originales:
+el rojo de Gruvbox y el de Nord no llegaban a 4,5:1 sobre su propio fondo y se
+han aclarado lo justo. El acento de Gruvbox tampoco es su naranja de siempre,
+porque se quedaba a 13° de tono de su propio amarillo de aviso y el acento habría
+dejado de distinguirse de un panel `BLOCKED`; se usa el aqua, que está a 100°.
+
+### Escribirse uno
+
+El fichero es `%APPDATA%\flow\config` —o `$XDG_CONFIG_HOME/flow/config` fuera de
+Windows—, y el selector te enseña su ruta abajo del todo. flow lo escribe la
+primera vez que guardas un tema, ya comentado con todas las claves.
+
+```ini
+theme = mío
+
+[theme mío]
+base   = gruvbox      ; hereda todo lo suyo
+accent = #d3869b      ; menos el acento, que aquí es rosa
+```
+
+**Lo que no digas se hereda de `base`**, y esa es toda la gracia del formato: un
+tema son veintitantos colores, y obligar a escribirlos todos para cambiar uno
+habría hecho que nadie escribiera ninguno. Las claves son las de la paleta —`bg`,
+`raised`, `sel`, `hover`, `line`, `line_hi`, `text`, `text_hi`, `text_dim`,
+`text_faint`, `accent`, `accent_stroke`, `green`, `amber`, `red`, `slate` y
+`ansi0`…`ansi15`—, los valores van en `#rrggbb` o `#rgb`, un `#` al principio de
+línea es un comentario y `;` abre una nota al final de una que ya dice algo.
+
+Dos cosas que conviene saber:
+
+- **`base` tiene que ir antes que los colores**, porque es lo que decide desde
+  dónde se parte.
+- **Tu tema no pasa por los tests de contraste**, y no puede: se lee al arrancar,
+  no al compilar. Por eso heredar de uno de los cinco y cambiar poco es lo que
+  hace que empieces cumpliendo. Si el fichero tiene una errata, flow no se cae:
+  la línea se descarta, el aviso sale por la salida de errores —lo ves si lo
+  lanzaste desde una terminal— y todo lo demás se carga igual.
 
 ## Que el agente sepa que está dentro
 
@@ -196,6 +274,7 @@ Está en el temporal del usuario, así que no da a nadie nada que no tuviera ya
 | -------------- | -------------------------------------------------- |
 | `Ctrl-N`       | Abrir una sesión nueva                             |
 | `Ctrl-T`       | Añadir una terminal o un agente a esta sesión      |
+| `Ctrl-Shift-T` | Cambiar de tema                                    |
 | `Ctrl-W`       | Cerrar el panel con el foco                        |
 | `Ctrl-Shift-W` | Cerrar la sesión entera, con todos sus procesos    |
 | `Ctrl-1`…`9`   | Saltar a la sesión n-ésima                         |
@@ -249,6 +328,10 @@ es aclarar el que te escucha.
 
 ### Color
 
+Lo que sigue describe el tema de casa. Los otros cambian los valores, pero no la
+estructura: los papeles son los mismos en los cinco y ninguno estrena un color
+que no signifique nada (ver [temas](#temas)).
+
 Tres colores llevan el peso: **negro puro** de fondo, **gris** en las divisorias
 de 1 px y el **verde de la marca** (`#1E825F`) en todo lo que es flow hablando —
 el logo, el marco del panel con el foco, el cursor—. No hay tarjetas grises ni
@@ -257,7 +340,9 @@ tono.
 
 El negro es `#000000` exacto, y es una decisión, no una casualidad: en un panel
 OLED ese valor es el píxel **apagado**, un negro que ninguna otra pantalla sabe
-dar. Subirlo aunque fuera un punto lo encendería entero.
+dar. Subirlo aunque fuera un punto lo encendería entero. Es también la razón de
+que el tema de casa siga siendo el de fábrica y de que ninguno de los otros
+cuatro le toque el fondo: un tema es justo eso, y este no lo cambia.
 
 ### Grano y profundidad
 
@@ -292,16 +377,20 @@ diez píxeles, que es el trabajo que tienen que hacer.
 El verde de marca vive en dos claridades, que son el mismo tono (159°) y se
 eligen por lo que va a pintar, no por gusto:
 
-| Constante     | Valor     | Contraste | Dónde                                                          |
+| Campo         | Valor     | Contraste | Dónde                                                          |
 | ------------- | --------- | --------- | -------------------------------------------------------------- |
-| `ACCENT`      | `#1E825F` | 4,41:1    | Marcos, trazos, rellenos, logo; extremo oscuro del degradado    |
-| `ACCENT_TEXT` | `#30CF97` | 10,50:1   | Rótulos, glifos finos, el bloque del cursor; extremo claro      |
+| `accent`      | `#1E825F` | 4,41:1    | Marcos, trazos, rellenos, logo; extremo oscuro del degradado    |
+| `accent_text` | `#30CF97` | 10,50:1   | Rótulos, glifos finos, el bloque del cursor; extremo claro      |
 
 La razón es de contraste: la WCAG le pide 3:1 a un componente de interfaz y
 4,5:1 a un texto. `#1E825F` cumple lo primero pero no lo segundo, así que en
 cuanto el acento tiene que ser una letra se sube a la variante clara. El test
-`theme::tests::el_acento_cumple_lo_de_un_componente_de_interfaz` impide que
-alguien lo use de color de texto sin enterarse.
+`theme::tests::el_acento_de_flow_cumple_lo_de_un_componente_de_interfaz` impide
+que alguien lo use de color de texto sin enterarse.
+
+Las dos caras no se escriben por separado: la oscura es la clara escalada por
+0,627, y de ahí que compartan tono exacto —escalar los tres canales por igual no
+lo mueve—. Un tema propio declara solo `accent` y la otra sale sola.
 
 El degradado del panel con foco va de una a la otra en vez de estrenar un tercer
 verde: son los dos tonos que ya existen, comparten tono, y los dos pasan de sobra
@@ -324,7 +413,9 @@ se usan de adorno. Si ves color en flow, significa algo:
 > significar estado. Hoy se distinguen por el sitio —el acento no aparece nunca
 > como marca de estado, y una marca de estado lleva siempre su palabra al lado—
 > pero es la regla más floja de la paleta. Está anotada en
-> [mejoras propuestas](#mejoras-propuestas-de-interfaz).
+> [mejoras propuestas](#mejoras-propuestas-de-interfaz). En los cuatro temas
+> portados el acento está a 76° o más del estado más cercano; el tema de casa,
+> con sus 27°, es el que peor lo lleva.
 
 ### Tipografía
 
@@ -399,34 +490,43 @@ rejilla nueva por frame de animación para acabar exactamente donde iba a acabar
 
 ## Accesibilidad
 
-**Contraste.** Todo lo que es texto cumple WCAG AA (4,5:1) contra el negro, y no
+**Contraste.** Todo lo que es texto cumple WCAG AA (4,5:1) contra el fondo, y no
 por confianza: lo comprueba `theme::tests::todo_lo_que_es_texto_cumple_aa`, que
-recorre la paleta entera y calcula la luminancia relativa. Si alguien oscurece
-un color por debajo del mínimo, falla el `cargo test`.
+recorre la paleta entera de **cada tema** y calcula la luminancia relativa. Si
+alguien oscurece un color por debajo del mínimo, falla el `cargo test`.
 
 Y lo cumple **también atenuado**, que es el caso real peor: el nivel más flojo de
 uno de los siete paneles sin foco. Eso lo comprueba un segundo test,
 `el_texto_de_un_panel_apagado_tambien_cumple_aa`, y es el que fija el techo del
-atenuado: `TEXT_FAINT` se queda en 4,58:1 al apagarse, a un pelo del mínimo. Un
-tercer test guarda el propio 0,90 dentro de un rango acordado, para que bajarlo
-haga ruido al pasar los tests y no dos semanas después.
+atenuado: `text_faint` se queda en 4,58:1 al apagarse en el tema de casa, a un
+pelo del mínimo. Un tercer test guarda el propio 0,90 dentro de un rango
+acordado, para que bajarlo haga ruido al pasar los tests y no dos semanas
+después.
+
+Atenuar no es oscurecer: `dim_inactive` baja también la alfa, así que lo que se
+ve es el color **mezclado con el fondo del panel**. Sobre el negro de casa daba
+lo mismo —mezclar con negro es oscurecer—, pero sobre el fondo de un tema con
+color no, y el test mide lo que se ve.
 
 Las divisorias se quedan en 2,07:1 a propósito: son decoración, no transmiten
 información, y subirlas más convertiría la rejilla en lo más ruidoso de la
-pantalla. `ACCENT` se queda en 4,41:1 por la misma lógica —es marco y relleno,
+pantalla. El acento se queda en 4,41:1 por la misma lógica —es marco y relleno,
 nunca letra— y tiene su propio test que lo mantiene fuera del texto.
+
+Los números de abajo son los del tema de casa. Los otros cuatro pasan los mismos
+mínimos con los suyos:
 
 |                             | vs negro                    | apagado                     |                            |
 | --------------------------- | --------------------------- | --------------------------- | -------------------------- |
-| `TEXT`                      | 12,87:1                     | 10,40:1                     | AA                         |
-| `TEXT_DIM`                  | 7,93:1                      | 6,50:1                      | AA                         |
-| `TEXT_FAINT`                | 5,48:1                      | 4,58:1                      | AA (mínimo permitido)      |
-| `ACCENT_TEXT`               | 10,50:1                     | 8,48:1                      | AA                         |
-| `ACCENT`                    | 4,41:1                      | —                           | AA solo como componente    |
+| `text`                      | 12,87:1                     | 10,40:1                     | AA                         |
+| `text_dim`                  | 7,93:1                      | 6,50:1                      | AA                         |
+| `text_faint`                | 5,48:1                      | 4,58:1                      | AA (mínimo permitido)      |
+| `accent_text`               | 10,50:1                     | 8,48:1                      | AA                         |
+| `accent`                    | 4,41:1                      | —                           | AA solo como componente    |
 | Verde / ámbar / rojo / gris | 13,44 / 11,39 / 7,02 / 5,70 | 10,83 / 9,21 / 5,80 / 4,77  | AA                         |
-| `LINE`                      | 2,07:1                      | —                           | decoración, no informa      |
+| `line`                      | 2,07:1                      | —                           | decoración, no informa      |
 
-`ACCENT` y `LINE` no llevan columna de apagado porque nunca la ven: el acento
+`accent` y `line` no llevan columna de apagado porque nunca la ven: el acento
 solo pinta el marco del panel con foco, que por definición no se atenúa, y las
 divisorias son estructura y se quedan enteras en los ocho.
 
@@ -446,9 +546,10 @@ y el estado dentro del nombre.
 
 **Limitación conocida:** no hay navegación por `Tab`. Los widgets pintados a
 mano no entran en el orden de foco de egui. Las rutas principales sí son
-accesibles por teclado (`Ctrl-N`, `Ctrl-W`, `Ctrl-1`…`9`, `Alt-1`…`8`, `Alt`+flechas, y el
-campo de entrada toma el foco solo al cambiar de panel), pero llegar a los
-botones de la barra inferior requiere ratón.
+accesibles por teclado (`Ctrl-N`, `Ctrl-T`, `Ctrl-Shift-T`, `Ctrl-W`, `Ctrl-1`…`9`,
+`Alt-1`…`8`, `Alt`+flechas, y el campo de entrada toma el foco solo al cambiar de
+panel), pero llegar a los botones de la barra inferior requiere ratón. El
+selector de temas sí se maneja entero con flechas, `Enter` y `Esc`.
 
 ## Rendimiento
 
@@ -483,7 +584,9 @@ src/
   term.rs     emulador de terminal (rejilla, scrollback, ANSI)
   logo.rs     la marca, rasterizada en código
   presets.rs  catálogo de agentes y detección en el PATH
-  theme.rs    paleta, fuentes, espacio y estilo
+  theme.rs    los temas: paleta, contrato, fuentes, espacio y estilo
+  config.rs   el fichero de configuración: tema activo y temas propios
+  projects.rs los directorios que ya has usado
   ui/
     chrome.rs   barra superior, botones de ventana y bordes de resize
     bar.rs      la columna de sesiones de la izquierda
@@ -492,6 +595,7 @@ src/
     output.rs   la terminal de un panel
     prompt.rs   la barra de entrada
     spawn.rs    el formulario de lanzamiento
+    themes.rs   el selector de temas
     widgets.rs  primitivas de dibujo
 ```
 

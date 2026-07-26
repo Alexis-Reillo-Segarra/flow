@@ -182,8 +182,8 @@ pub fn show(
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .show(ctx, |ui| {
             egui::Frame::new()
-                .fill(theme::RAISED)
-                .stroke(Stroke::new(1.0, theme::LINE_HI))
+                .fill(theme::pal().raised)
+                .stroke(Stroke::new(1.0, theme::pal().line_hi))
                 .corner_radius(CornerRadius::same(theme::RADIUS))
                 .inner_margin(egui::Margin::same(14))
                 .show(ui, |ui| {
@@ -196,9 +196,9 @@ pub fn show(
                             Kind::Pane => "ADD TO SESSION",
                         })
                         .font(theme::sans(theme::SANS_MD))
-                        .color(theme::ACCENT_TEXT),
+                        .color(theme::pal().accent_text),
                     );
-                    widgets::hline(ui, theme::LINE);
+                    widgets::hline(ui, theme::pal().line);
                     ui.add_space(2.0);
 
                     // Al añadir a una sesión, lo primero es decir a cuál: el
@@ -206,7 +206,7 @@ pub fn show(
                     // que la terminal nueva sirva para mirar lo que hace el
                     // agente en vez de para perderse.
                     if form.kind == Kind::Pane {
-                        widgets::mono_label(ui, &form.cwd, theme::TEXT_DIM);
+                        widgets::mono_label(ui, &form.cwd, theme::pal().text_dim);
                         ui.add_space(4.0);
                     }
 
@@ -238,16 +238,16 @@ pub fn show(
                                     ui.label(
                                         egui::RichText::new(title)
                                             .font(theme::sans(theme::SANS_SM))
-                                            .color(theme::TEXT_FAINT),
+                                            .color(theme::pal().text_faint),
                                     );
                                     ui.add_space(3.0);
                                     ui.horizontal_wrapped(|ui| {
                                         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
                                         for p in items {
                                             let accent = if std::ptr::eq(title, AGENTS_TITLE) {
-                                                theme::ACCENT_TEXT
+                                                theme::pal().accent_text
                                             } else {
-                                                theme::TEXT_DIM
+                                                theme::pal().text_dim
                                             };
                                             if widgets::agent_button(ui, p.label, p.mark, accent)
                                                 .on_hover_text(p.about)
@@ -267,7 +267,7 @@ pub fn show(
                                 widgets::mono_label(
                                     ui,
                                     "no se detectó ningún agente en el PATH",
-                                    theme::TEXT_FAINT,
+                                    theme::pal().text_faint,
                                 );
                                 ui.add_space(6.0);
                             }
@@ -290,7 +290,7 @@ pub fn show(
                                     ui.label(
                                         egui::RichText::new("PROYECTO")
                                             .font(theme::sans(theme::SANS_SM))
-                                            .color(theme::TEXT_FAINT),
+                                            .color(theme::pal().text_faint),
                                     );
                                     ui.add_space(3.0);
                                     ui.horizontal_wrapped(|ui| {
@@ -298,9 +298,9 @@ pub fn show(
                                         for dir in projects.dirs() {
                                             let chosen = form.cwd.trim() == dir;
                                             let accent = if chosen {
-                                                theme::ACCENT_TEXT
+                                                theme::pal().accent_text
                                             } else {
-                                                theme::TEXT_DIM
+                                                theme::pal().text_dim
                                             };
                                             if widgets::button(
                                                 ui,
@@ -326,18 +326,22 @@ pub fn show(
                                 // nunca sin que lo hayas leído antes.
                                 if missing_dir(form) {
                                     ui.add_space(3.0);
-                                    widgets::mono_label(ui, "no existe todavía", theme::AMBER);
+                                    widgets::mono_label(
+                                        ui,
+                                        "no existe todavía",
+                                        theme::pal().amber,
+                                    );
                                 }
                             }
 
                             if let Some(err) = &form.error {
                                 ui.add_space(4.0);
-                                widgets::mono_label(ui, err, theme::RED);
+                                widgets::mono_label(ui, err, theme::pal().red);
                             }
                         });
 
                     ui.add_space(10.0);
-                    widgets::hline(ui, theme::LINE);
+                    widgets::hline(ui, theme::pal().line);
                     ui.add_space(8.0);
 
                     ui.horizontal(|ui| {
@@ -349,9 +353,9 @@ pub fn show(
                                 "Esc cancela · Enter lanza"
                             },
                             if full {
-                                theme::AMBER
+                                theme::pal().amber
                             } else {
-                                theme::TEXT_FAINT
+                                theme::pal().text_faint
                             },
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -361,10 +365,12 @@ pub fn show(
                             } else {
                                 "LAUNCH"
                             };
-                            if !full && widgets::button(ui, launch, theme::ACCENT_TEXT).clicked() {
+                            if !full
+                                && widgets::button(ui, launch, theme::pal().accent_text).clicked()
+                            {
                                 action = Some(Action::ConfirmSpawn);
                             }
-                            if widgets::button(ui, "CANCEL", theme::TEXT_DIM).clicked() {
+                            if widgets::button(ui, "CANCEL", theme::pal().text_dim).clicked() {
                                 action = Some(Action::CancelSpawn);
                             }
                         });
@@ -389,7 +395,7 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, hint: &str) -> egui::Resp
     ui.label(
         egui::RichText::new(label)
             .font(theme::sans(theme::SANS_SM))
-            .color(theme::TEXT_FAINT),
+            .color(theme::pal().text_faint),
     );
 
     let width = ui.available_width();
@@ -397,7 +403,7 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, hint: &str) -> egui::Resp
     let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
 
     ui.painter()
-        .rect_filled(rect, CornerRadius::ZERO, theme::BG);
+        .rect_filled(rect, CornerRadius::ZERO, theme::pal().bg);
 
     let inner = Rect::from_min_max(rect.min + vec2(6.0, 4.0), rect.max - vec2(6.0, 3.0));
     let resp = ui
@@ -405,22 +411,22 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, hint: &str) -> egui::Resp
             ui.add(
                 egui::TextEdit::singleline(value)
                     .font(theme::mono(theme::MONO_SM))
-                    .text_color(theme::TEXT_HI)
+                    .text_color(theme::pal().text_hi)
                     .frame(egui::Frame::NONE)
                     .desired_width(inner.width())
                     .hint_text(
                         egui::RichText::new(hint)
                             .font(theme::mono(theme::MONO_SM))
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::pal().text_faint),
                     ),
             )
         })
         .inner;
 
     let border = if resp.has_focus() {
-        theme::ACCENT
+        theme::pal().accent
     } else {
-        theme::LINE
+        theme::pal().line
     };
     ui.painter().rect_stroke(
         rect,

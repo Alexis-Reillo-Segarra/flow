@@ -51,9 +51,11 @@ Tres colores llevan la estructura: el fondo, el gris de las divisorias de 1 px y
 el verde de la marca. **La estructura se lee por las líneas y por el hueco, no
 por bloques de tono.** No hay rellenos de color decorativos ni tarjetas grises.
 
-El fondo es **`#000000` exacto, negro OLED**, y eso es una decisión tomada, no un
-valor por defecto que nadie revisó: en un panel OLED ese valor es el píxel
-apagado, un negro que ninguna otra pantalla sabe dar. **No lo subas.** Es la
+El fondo del tema de casa es **`#000000` exacto, negro OLED**, y eso es una
+decisión tomada, no un valor por defecto que nadie revisó: en un panel OLED ese
+valor es el píxel apagado, un negro que ninguna otra pantalla sabe dar. **No lo
+subas.** Que hoy haya temas con fondo propio no lo cambia: quien quiera un gris
+oscuro tiene cuatro donde elegir, y el de fábrica sigue siendo este. Es la
 restricción más dura de la paleta y de ella se derivan dos cosas que a primera
 vista parecen caprichos: por qué no hay sombras (ver más abajo) y por qué existe
 el grano.
@@ -262,25 +264,63 @@ que el contenedor cambie de alto.
 
 ## Temas
 
-La paleta deja de ser fija: flow admite temas intercambiables (Catppuccin,
-Gruvbox, Tokyo Night, el verde de casa). El contrato que **cualquier** tema tiene
-que cumplir para entrar:
+**Ya están.** La paleta no es fija: es `theme::Palette`, hay cinco incluidos
+—`flow`, `catppuccin`, `gruvbox`, `tokyonight`, `nord`—, se cambian en caliente
+con `Ctrl-Shift-T` y `crate::config` lee los que el usuario se escriba. Lo que
+sigue es lo que hay que respetar para no romperlo.
+
+**De `ui/` no sale ningún `Color32` literal.** Todo el color viene de
+`theme::pal()`, que devuelve la paleta activa. Un color escrito a pelo en un
+módulo de `ui` es un color que no cambia al cambiar de tema, y con eso la
+promesa se rompe por un sitio y nadie se entera hasta que alguien pone Nord y le
+queda un gris del tema anterior en una esquina. Las únicas excepciones son las
+que no son color de interfaz: el blanco con el que se sube una textura y el
+negro del velo de un modal.
+
+El contrato que **cualquier** tema incluido tiene que cumplir para entrar:
 
 1. Los cuatro niveles de texto cumplen 4,5:1 contra el fondo del tema — **y
    también atenuados**, porque con `dim_inactive` el nivel más tenue de un panel
-   sin foco es el peor caso real de la interfaz.
+   sin foco es el peor caso real de la interfaz. Ojo: atenuar baja la alfa, así
+   que el color que se ve es la **mezcla con el fondo del panel**, no el color
+   oscurecido; sobre el negro de casa daba igual, sobre un tema con color no.
 2. El acento tiene sus dos caras: una de trazo (≥3:1) y una de texto (≥4,5:1),
-   **con el mismo tono**, para que se lean como el mismo color y no como dos.
+   **con el mismo tono**. No se escriben las dos: la de trazo sale de escalar la
+   de texto por un factor, y escalar los tres canales por igual no mueve el tono.
+   Si alguna vez las escribes a mano, las estás separando por accidente.
 3. Los cuatro colores de estado cumplen 4,5:1 y siguen siendo distinguibles
    entre sí: verde, ámbar, rojo y gris tienen que separarse también para quien
    no distingue rojo de verde — por eso el estado **nunca** va solo en color, y
-   siempre lleva su palabra (`WORKING`, `BLOCKED`) o su forma al lado.
-4. Los slots ANSI conservan su nombre: el cian del tema es cian.
+   siempre lleva su palabra (`WORKING`, `BLOCKED`) o su forma al lado. El test
+   pide 25° de tono entre estados, y es lo que echó al naranja de Gruvbox de ser
+   su acento: se quedaba a 13° de su propio amarillo de aviso.
+4. Los slots ANSI conservan su nombre —el cian es cian— y **ninguno de los
+   dieciséis es exactamente el acento**: si lo fuera, lo que dice flow y lo que
+   escribe un proceso saldrían del mismo color. En los temas portados suele
+   chocar, porque el color de la casa es también uno de sus ANSI; ahí se mueve
+   el slot, no el acento.
 
-Los tests de `theme.rs` son la puerta de entrada, no un trámite. **Al añadir un
-tema, los tests tienen que recorrer todos los temas**, no solo el activo — si
-siguen comprobando constantes sueltas, dejan de proteger nada en cuanto haya un
-segundo tema.
+Los tests de `theme.rs` son la puerta de entrada, no un trámite, y **recorren
+todos los temas**, no el activo. Si añades un campo a `Palette` que vaya a ser
+texto, va a la lista `textos()` de los tests: un color que nadie comprueba es un
+color que en dos meses no cumple.
+
+Dos cosas más que se olvidan:
+
+- **El terminal guarda el slot, no el color.** `term::Ink` distingue `Ansi(u8)`
+  de `Rgb`, y se resuelve al dibujar. Si vuelves a guardar un `Color32` resuelto
+  en la celda, el scrollback se queda pintado con el tema que hubiera cuando
+  llegó el texto y cambiar de tema deja media pantalla del tema viejo.
+- **El estilo de egui también lleva colores.** Al cambiar de tema hay que volver
+  a instalarlo con `theme::apply_style`; `app` lo hace comparando el tema activo
+  con el que armó el estilo que está puesto. Las fuentes no: reinstalarlas tira
+  el atlas de glifos para reconstruirlo igual.
+
+**El tema de un usuario no pasa por los tests**, porque se lee al arrancar y no
+al compilar. Por eso el formato hereda de un tema incluido: heredar de uno que
+cumple es lo que hace que empezar a tocar colores no acabe en una interfaz
+ilegible. No se le pone una validación que le rechace el tema —es suyo— pero
+tampoco se le esconde: lo que no se entienda del fichero se avisa por `stderr`.
 
 ## El idioma egui de este proyecto
 
@@ -400,6 +440,9 @@ Todo lo que **sí** informa cumple AA. Cuando cambies un color, **ejecuta
   se encoge a números y lo que cabía deja de caber.
 - ¿Lo que dibujaste a mano tiene su `widget_info`?
 - ¿Metiste algún color que no signifique nada?
+- ¿Sale algún color de un literal en vez de `theme::pal()`? Míralo con un tema
+  que no sea el de casa (`Ctrl-Shift-T`, o `theme = nord` en el config): lo que
+  no siga al tema salta a la vista en cuanto el fondo deja de ser negro.
 - ¿Tapaste el grano con algún relleno opaco nuevo?
 - ¿Sigue leyéndose como ventanas en mosaico, o se ha convertido en una tabla?
 - ¿Lo destructivo sigue lejos del ratón?

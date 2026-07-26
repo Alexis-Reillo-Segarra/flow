@@ -384,11 +384,15 @@ fn labelled_button(ui: &mut Ui, label: &str, mark: Option<Mark>, accent: Color32
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
 
     let (bg, border, fg) = if response.is_pointer_button_down_on() {
-        (accent.gamma_multiply(0.22), accent, theme::TEXT_HI)
+        (accent.gamma_multiply(0.22), accent, theme::pal().text_hi)
     } else if response.hovered() {
-        (theme::HOVER, accent.gamma_multiply(0.75), accent)
+        (theme::pal().hover, accent.gamma_multiply(0.75), accent)
     } else {
-        (Color32::TRANSPARENT, theme::LINE, theme::TEXT_DIM)
+        (
+            Color32::TRANSPARENT,
+            theme::pal().line,
+            theme::pal().text_dim,
+        )
     };
 
     let painter = ui.painter();
@@ -483,13 +487,13 @@ pub fn empty_state(ui: &mut Ui, title: &str, hint: &str) {
         Align2::CENTER_CENTER,
         title,
         theme::sans(theme::SANS_MD),
-        theme::TEXT_FAINT,
+        theme::pal().text_faint,
     );
     painter.text(
         pos2(center.x, center.y + 10.0),
         Align2::CENTER_CENTER,
         hint,
         theme::mono(theme::MONO_SM),
-        theme::TEXT_FAINT,
+        theme::pal().text_faint,
     );
 }

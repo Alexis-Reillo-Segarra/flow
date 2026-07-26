@@ -4,6 +4,7 @@ pub mod grain;
 pub mod output;
 pub mod prompt;
 pub mod spawn;
+pub mod themes;
 pub mod tiles;
 pub mod widgets;
 
@@ -45,4 +46,13 @@ pub enum Action {
     OpenSpawn(spawn::Kind),
     CancelSpawn,
     ConfirmSpawn,
+    /// Abre el selector de temas.
+    OpenThemes,
+    /// Prueba el tema n-ésimo. Se aplica de verdad y a toda la app: elegir tema
+    /// es mirarlo puesto.
+    PickTheme(usize),
+    /// Se queda con el que esté probando y lo deja escrito en el fichero.
+    ConfirmThemes,
+    /// Vuelve al que había antes de abrir el selector.
+    CancelThemes,
 }
