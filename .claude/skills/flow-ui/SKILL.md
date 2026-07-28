@@ -47,9 +47,28 @@ tener comentario: el siguiente que pase se lo va a creer.
 
 ### Color
 
-Tres colores llevan la estructura: el fondo, el gris de las divisorias de 1 px y
-el verde de la marca. **La estructura se lee por las líneas y por el hueco, no
+Tres valores llevan la estructura: el fondo, el gris de las divisorias de 1 px y
+el blanco de la marca. **La estructura se lee por las líneas y por el hueco, no
 por bloques de tono.** No hay rellenos de color decorativos ni tarjetas grises.
+
+**El tema de casa es monocromo entero**, estados incluidos, y no es una
+preferencia estética suelta: es la regla de abajo —*si ves color en flow,
+significa algo*— llevada a donde ya no hace falta enunciarla. Lo único con tono
+que puede salir en pantalla son los dieciséis colores del terminal, así que **si
+ves color, no lo ha puesto flow: lo ha escrito un proceso**. Hay un test,
+`el_tema_de_casa_no_tiene_un_solo_color_de_interfaz`, y falla en cuanto un campo
+de la paleta deja de cumplir `r == g == b`.
+
+De ahí sale una consecuencia que se puede deshacer sin querer: **el blanco puro
+es del acento y de nadie más**. `TEXT_HI` se queda en `#e6e6e6` a propósito. Con
+el acento en un color, lo que separa el foco de un rótulo destacado es el tono;
+sin tono solo queda la claridad, así que el resto de la interfaz tiene que
+quedarse por debajo del blanco. Si subes `TEXT_HI` a `#ffffff` no falla ningún
+test y aun así has borrado la jerarquía.
+
+Y los grises no tienen tono. Los de antes tiraban a azul un par de puntos
+—`#c6cbd2`, `#3c424b`—, que es un matiz que funciona mientras la marca aporta el
+color y se nota en cuanto no la aporta. Si añades un gris, que sea neutro.
 
 El fondo del tema de casa es **`#000000` exacto, negro OLED**, y eso es una
 decisión tomada, no un valor por defecto que nadie revisó: en un panel OLED ese
@@ -60,10 +79,41 @@ restricción más dura de la paleta y de ella se derivan dos cosas que a primera
 vista parecen caprichos: por qué no hay sombras (ver más abajo) y por qué existe
 el grano.
 
-Aparte de eso hay cuatro colores que **solo** hablan de estado — verde, ámbar,
-rojo, gris. La regla que los hace útiles: *si ves color en flow, significa algo*.
-En cuanto uses el ámbar para adornar un separador, el ámbar deja de querer decir
-"esto está bloqueado esperándote" y pierdes el idioma entero.
+Aparte de eso hay cuatro campos que **solo** hablan de estado — `green`,
+`amber`, `red`, `slate`. La regla que los hace útiles: *si ves una marca de
+estado en flow, significa algo*. En cuanto uses el de `BLOCKED` para adornar un
+separador, deja de querer decir "esto está bloqueado esperándote" y pierdes el
+idioma entero.
+
+**Los nombres son el papel, no el tono.** En los cuatro temas de color son verde,
+ámbar y rojo de verdad; en el de casa son cuatro grises. No los renombres aunque
+te chirríe: son el formato del fichero de configuración y hay gente con temas
+escritos.
+
+Lo que hace que un estado se pueda decir en gris es que **el color nunca fue la
+única señal**, y de los cuatro canales era el prescindible —es el que no le llega
+a quien no distingue rojo de verde—:
+
+- **La palabra**, siempre al lado: `WORKING`, `BLOCKED`, `IDLE`, `DONE`, `EXIT`,
+  `FAILED`.
+- **La forma**: `IDLE` hueco, el resto sólido.
+- **El ritmo**: `WORKING` late, `BLOCKED` parpadea, los terminales quietos.
+- **La claridad**, ordenada **por daño**: `red` arriba, `amber` debajo, luego lo
+  que va bien, `IDLE` el más apagado.
+
+Ese último orden parece del revés y no lo es, así que no lo "arregles": `red` y
+`amber` no pintan solo marcas de estado. `red` es también `KILL`, la X de cerrar
+y los errores; `amber` es el `^C` y los avisos. Ahí «error» tiene que pesar más
+que «aviso», y en una sola dimensión no puedes tener las dos ordenaciones a la
+vez. Pierde la marca de estado porque es la que tiene con qué compensar:
+`BLOCKED` parpadea, y el parpadeo gana a cualquier claridad. Si subes `amber` por
+encima de `red`, `KILL` se ve más flojo que `^C`.
+
+El par delicado es `DONE` contra `EXIT`/`FAILED`: los dos sólidos, los dos
+quietos, así que solo los separan la claridad y la palabra. Si tocas estos
+valores, ese es el que hay que mirar. El test acepta 25° de tono **o** 1,5:1 de
+claridad, y ese `o` es lo que deja convivir un tema monocromo con cuatro de
+color; no lo conviertas en un `y`.
 
 El acento tiene dos caras y no son intercambiables:
 
@@ -71,7 +121,9 @@ El acento tiene dos caras y no son intercambiables:
   el 3:1 que la WCAG pide a un componente de interfaz, pero no el 4,5:1 de un
   texto.
 - `ACCENT_TEXT` — la misma marca aclarada, para cuando el acento **es una letra**
-  o un glifo fino.
+  o un glifo fino, y para **el logotipo** (`ui::chrome::mark`): la marca trae
+  dentro su propia caída de contraste, así que arrancarla en la cara de trazo la
+  apaga dos veces y sus dos últimas barras desaparecen sobre el negro.
 
 Confundirlas es el error más fácil de cometer aquí, y hay un test que lo caza.
 
@@ -128,9 +180,10 @@ hacia fuera y saca una tira de triángulos con el color interpolado por vértice
 
 Dos cosas que hay que saber antes de tocarlo:
 
-- **Va de `ACCENT` a `ACCENT_TEXT`, no a un tercer verde.** Son los dos tonos que
-  ya existen, comparten tono, y los dos pasan el 3:1 de un trazo, así que el
-  borde cumple en todo su recorrido y no solo en un extremo.
+- **Va de `ACCENT` a `ACCENT_TEXT`, no a un tercer color.** Son las dos caras que
+  ya existen, comparten tono, y las dos pasan el 3:1 de un trazo, así que el
+  borde cumple en todo su recorrido y no solo en un extremo. En el tema de casa
+  eso es un degradado de gris a blanco, que es toda la señal de foco que hay.
 - **La tira lleva un reborde de un píxel que se desvanece, repartido medio píxel
   a cada lado.** Sin él, las curvas de las esquinas salen en escalera: los trazos
   de egui se suavizan solos y una malla puesta a mano no. Y si lo reparte mal
@@ -191,9 +244,9 @@ dos superficies es que entre ellas haya un gradiente, dé igual hacia qué lado�
 consigue lo mismo que busca la sombra de allí: que la ventana se lea despegada
 del fondo y no recortada sobre él.
 
-El halo del panel con foco va teñido de verde, como el `col.shadow` coloreado de
-la ventana activa de Hyprland. **No es una señal más**: es el borde derramándose,
-el mismo acento del apartado 1.
+El halo del panel con foco va teñido con el acento, como el `col.shadow`
+coloreado de la ventana activa de Hyprland. **No es una señal más**: es el borde
+derramándose, el mismo acento del apartado 1.
 
 Si alguien te pide «sombras de verdad», esto es lo que hay que contarle: se puede,
 pero cuesta el negro OLED. Es un intercambio, no una mejora, y lo decide quien
@@ -244,6 +297,34 @@ todo lo demás. Todas caben en el mismo círculo imaginario y comparten grosor d
 trazo, para que puestas en columna se lean como una familia y no como un
 muestrario.
 
+## El teclado es del proceso
+
+**Lo que se teclea va al panel con el foco**, tecla a tecla, y no pasa por ningún
+campo de la interfaz: `app::Flow::type_into_pane` coge los eventos del frame,
+`keys::encode` los traduce a bytes y salen por el PTY. Es lo que hace que un
+panel sea una terminal de verdad —`Ctrl-C` interrumpe, `Tab` completa, las
+flechas recorren el historial, una TUI responde— y no una caja de salida.
+
+Aquí abajo hubo un `TextEdit` donde se escribía la línea y se mandaba con
+`Enter`. Se quitó porque no puede convivir con lo anterior: dos sitios que
+quieren las mismas teclas, y el campo gana siempre por tener el foco de egui.
+
+Tres consecuencias para cualquier cosa que añadas:
+
+- **No metas widgets que tomen el foco del teclado fuera de un modal.** Un
+  `TextEdit` suelto en el chrome se come lo que el usuario le estaba escribiendo
+  a su agente. Si hace falta escribir algo que no es para el proceso, va en un
+  modal, como el formulario de lanzamiento y el selector de temas — que son
+  justamente las dos únicas ventanas donde `type_into_pane` no hace nada.
+- **Un atajo nuevo se declara dos veces**: en `Flow::shortcuts`, que lo ejecuta,
+  y en `keys::reservada`, que impide que además le llegue al proceso. Olvidar la
+  segunda mitad no rompe ningún test de compilación: escribe basura en la
+  terminal de quien use el atajo.
+- **Piénsatelo dos veces antes de reservar una tecla.** Cada combinación que se
+  queda flow es una que el shell o la TUI de dentro pierde para siempre; hoy son
+  once y `Ctrl-W` ya duele —en un shell borra la palabra anterior—. Lo que pueda
+  ir en un botón o en el ratón, que vaya ahí.
+
 ## Lo destructivo no se pone al alcance del ratón
 
 Esto salió de un fallo concreto y vale como regla. Había una X para cerrar una
@@ -289,11 +370,13 @@ El contrato que **cualquier** tema incluido tiene que cumplir para entrar:
    de texto por un factor, y escalar los tres canales por igual no mueve el tono.
    Si alguna vez las escribes a mano, las estás separando por accidente.
 3. Los cuatro colores de estado cumplen 4,5:1 y siguen siendo distinguibles
-   entre sí: verde, ámbar, rojo y gris tienen que separarse también para quien
-   no distingue rojo de verde — por eso el estado **nunca** va solo en color, y
-   siempre lleva su palabra (`WORKING`, `BLOCKED`) o su forma al lado. El test
-   pide 25° de tono entre estados, y es lo que echó al naranja de Gruvbox de ser
-   su acento: se quedaba a 13° de su propio amarillo de aviso.
+   entre sí, por **25° de tono o 1,5:1 de claridad**. Un tema de color se separa
+   por tono, y se pide tono y no claridad porque quien no distingue rojo de
+   verde los tiene casi a la misma luminancia —en Nord, 1,02:1—; un tema
+   monocromo no tiene tono y le queda la claridad. La regla de los 25° es lo que
+   echó al naranja de Gruvbox de ser su acento: se quedaba a 13° de su propio
+   amarillo de aviso. Y por debajo de todo esto, el estado **nunca** va solo en
+   color: lleva su palabra (`WORKING`, `BLOCKED`), su forma y su ritmo.
 4. Los slots ANSI conservan su nombre —el cian es cian— y **ninguno de los
    dieciséis es exactamente el acento**: si lo fuera, lo que dice flow y lo que
    escribe un proceso saldrían del mismo color. En los temas portados suele
@@ -401,7 +484,7 @@ si lo rompes, y están ahí porque son fáciles de romper sin darte cuenta:
 - **Y lo cumple también atenuado**, que es el caso real peor de la interfaz: el
   nivel más flojo de uno de los siete paneles sin foco. Tiene su propio test,
   `el_texto_de_un_panel_apagado_tambien_cumple_aa`, y es el que fija el techo de
-  `DIM_INACTIVE` — `TEXT_FAINT` se queda en 4,58:1 al apagarse, a un pelo del
+  `DIM_INACTIVE` — `TEXT_FAINT` se queda en 4,69:1 al apagarse, a un pelo del
   mínimo. Un tercer test guarda el propio 0,90 dentro de un rango acordado.
 - El acento de trazo cumple 3:1 y **se queda por debajo de 4,5:1 a propósito** —
   el test lo comprueba, porque si subiera, su variante de texto sobraría.
