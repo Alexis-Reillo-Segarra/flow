@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use egui::{Context, Vec2};
 
 use crate::agent::Agent;
+use crate::keys;
 use crate::presets;
 use crate::projects::Projects;
 use crate::repos;
@@ -62,9 +63,6 @@ pub struct Flow {
     /// después de recogerlo: se hace una vez por ejecución.
     repos_rx: Option<Receiver<Vec<repos::Repo>>>,
     repos_done: bool,
-    input: String,
-    /// Pide que el campo de entrada tome el foco en el próximo frame.
-    focus_input: bool,
     tiling: tiles::Tiling,
     /// Escala aplicada ahora mismo; 0 mientras no se ha decidido ninguna.
     scale: f32,
@@ -94,8 +92,6 @@ impl Flow {
             repos: Vec::new(),
             repos_rx: None,
             repos_done: false,
-            input: String::new(),
-            focus_input: false,
             tiling: tiles::Tiling::default(),
             scale: 0.0,
             inbox_root: std::env::temp_dir()
@@ -105,7 +101,19 @@ impl Flow {
         }
     }
 
-    // TEMPORAL: quitar antes de terminar.
+    /// Arranque de desarrollo: deja la pantalla llena sin lanzar nada a mano.
+    ///
+    /// No es código temporal aunque lo pareciera: es la única forma de mirar el
+    /// reparto de ocho paneles, el formulario o el selector de temas sin
+    /// montarlos a mano cada vez, y está documentada en `AGENTS.md`. Sin
+    /// variables de entorno puestas no hace absolutamente nada, así que no le
+    /// cuesta nada a quien solo abre la aplicación.
+    ///
+    /// | Variable | Efecto |
+    /// | --- | --- |
+    /// | `FLOW_DEMO=8` | Una sesión con 8 paneles de shell |
+    /// | `FLOW_FORM=session`\|`pane` | Arranca con el formulario abierto |
+    /// | `FLOW_PICKER=1` | Arranca con el selector de temas abierto |
     pub fn demo(mut self) -> Self {
         let cwd = std::env::current_dir()
             .map(|p| p.display().to_string())
@@ -149,28 +157,20 @@ impl Flow {
         self.current_index().map(|i| &mut self.sessions[i])
     }
 
-    /// Cambia de sesión, o de panel dentro de ella. En ambos casos el foco del
-    /// teclado se va al campo de entrada: lo normal tras saltar a algo es
-    /// querer contestarle, sobre todo si está BLOCKED esperando eso mismo.
+    /// Cambia de sesión, o de panel dentro de ella.
+    ///
+    /// No hay que hacer nada más con el teclado: lo que se escriba va al panel
+    /// con el foco, y acabamos de cambiar cuál es. Aquí antes se le devolvía el
+    /// foco a un campo de texto de abajo, que es justo lo que ya no existe.
     fn switch(&mut self, session: u64) {
-        if self.current != Some(session) {
-            self.current = Some(session);
-            self.input.clear();
-            self.focus_input = true;
-        }
+        self.current = Some(session);
     }
 
     fn focus(&mut self, pane: u64) {
-        let clear = match self.current_mut() {
-            Some(s) if s.focused != Some(pane) && s.index_of(pane).is_some() => {
+        if let Some(s) = self.current_mut() {
+            if s.index_of(pane).is_some() {
                 s.focused = Some(pane);
-                true
             }
-            _ => false,
-        };
-        if clear {
-            self.input.clear();
-            self.focus_input = true;
         }
     }
 
@@ -186,7 +186,6 @@ impl Flow {
                 self.sessions.retain(|s| s.id != id);
                 if self.current == Some(id) {
                     self.current = self.sessions.first().map(|s| s.id);
-                    self.input.clear();
                 }
             }
             Action::Focus(id) => self.focus(id),
@@ -216,8 +215,6 @@ impl Flow {
                     if let Some(session) = self.current {
                         self.apply(Action::CloseSession(session));
                     }
-                } else {
-                    self.input.clear();
                 }
             }
             Action::Restart(id) => {
@@ -233,13 +230,6 @@ impl Flow {
                         // `Drop` se encarga del proceso anterior.
                         s.panes[i] = Agent::spawn(id, name, cmd, cwd, cols, rows, &env);
                     }
-                }
-            }
-            Action::Send(text) => {
-                let mut bytes = text.into_bytes();
-                bytes.push(b'\r');
-                if let Some(p) = self.current_mut().and_then(|s| s.focused_mut()) {
-                    p.send(&bytes);
                 }
             }
             Action::SendRaw(bytes) => {
@@ -318,8 +308,6 @@ impl Flow {
                     return;
                 }
                 self.add_pane(i, name, cmd, true);
-                self.focus_input = true;
-                self.input.clear();
             }
         }
         self.form.close();
@@ -429,11 +417,45 @@ impl Flow {
         }
     }
 
+    /// Lo que se escribe va al panel con el foco, y va tal cual: flow no tiene
+    /// una línea de entrada propia donde componer antes de mandar.
+    ///
+    /// Es lo que hace que un panel sea una terminal de verdad y no una caja de
+    /// salida: `Ctrl-C` interrumpe, las flechas recorren el historial, `Tab`
+    /// completa y una TUI a pantalla completa responde al teclado. La traducción
+    /// entera —y qué teclas se queda flow— está en [`crate::keys`].
+    ///
+    /// No se llama con un modal abierto: ahí el teclado es del formulario, que
+    /// tiene sus propios campos de texto.
+    fn type_into_pane(&mut self, ctx: &Context) {
+        if self.form.open || self.picker.open {
+            return;
+        }
+        let Some(pane) = self.current_mut().and_then(|s| s.focused_mut()) else {
+            return;
+        };
+        // A un proceso muerto no se le escribe: el PTY ya no tiene quien lea al
+        // otro lado. La barra de abajo ofrece RESTART para eso.
+        if !pane.state.is_running() {
+            return;
+        }
+        let modes = pane.term().modes();
+        let bytes = ctx.input(|i| keys::encode(&i.events, modes));
+        if !bytes.is_empty() {
+            pane.send(&bytes);
+        }
+    }
+
     /// Atajos globales. No se procesan si el modal está abierto: ahí manda el
     /// formulario, y Ctrl-N sobre un campo de texto sería confuso.
     ///
     /// El reparto es el de un gestor de ventanas: **Ctrl** se mueve entre
     /// sesiones y **Alt**, dentro de la que estás mirando.
+    ///
+    /// Lo que se decida aquí hay que declararlo en [`keys::reservada`], que es
+    /// quien impide que la misma tecla llegue **además** al proceso. Son las
+    /// dos mitades de una sola decisión y viven separadas porque una necesita
+    /// `&mut Flow` y la otra tiene que poder probarse sin ventana.
     fn shortcuts(&mut self, ctx: &Context) -> Option<Action> {
         if self.form.open || self.picker.open {
             return None;
@@ -614,6 +636,11 @@ impl eframe::App for Flow {
 
         let time = ctx.input(|i| i.time);
         let mut action = self.shortcuts(ctx);
+        // Y lo que no se queda flow, al panel con el foco. Va antes de dibujar
+        // para que el eco del proceso llegue cuanto antes, y después de los
+        // atajos por el mismo motivo por el que `keys::reservada` existe: las
+        // teclas de la app no se escriben en la terminal.
+        self.type_into_pane(ctx);
 
         // El grano, lo primero de todo y sobre la ventana entera: barra de
         // título, columna y rejilla comparten el mismo fondo, así que compartir
@@ -638,12 +665,7 @@ impl eframe::App for Flow {
             let s = &self.sessions[i];
             s.focused.and_then(|id| s.index_of(id)).map(|p| (i, p))
         });
-        if let Some(a) = prompt::show(
-            ui,
-            focused.map(|(i, p)| &self.sessions[i].panes[p]),
-            &mut self.input,
-            &mut self.focus_input,
-        ) {
+        if let Some(a) = prompt::show(ui, focused.map(|(i, p)| &self.sessions[i].panes[p])) {
             action = Some(a);
         }
 

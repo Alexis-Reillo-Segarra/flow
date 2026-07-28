@@ -1,9 +1,21 @@
-//! La barra de entrada, abajo del todo.
+//! La tira de abajo: a quién le estás escribiendo y qué se le puede mandar sin
+//! teclado.
 //!
-//! Una sola para toda la rejilla, no una por panel: multiplicar el campo por
-//! ocho llenaría la pantalla de cajas iguales y dejaría a cada terminal sin
-//! filas. Le habla siempre al panel con el foco, y lo dice —el nombre del
-//! destinatario va escrito al lado del cursor.
+//! **Aquí había un campo de texto y ya no lo hay.** Se escribía abajo y flow le
+//! pasaba la línea entera al panel al pulsar Enter, que es lo que hace un
+//! chat y no lo que hace una terminal: no había eco mientras escribías, `Tab` no
+//! completaba, las flechas no recorrían el historial y una TUI a pantalla
+//! completa no se enteraba de nada. Hoy **lo que escribes va directo al panel
+//! con el foco** (ver `crate::keys`), así que un campo aparte solo podía
+//! competir por las mismas teclas.
+//!
+//! Lo que queda es lo que un teclado no da:
+//!
+//! - **A quién le llega lo que escribas.** Con ocho terminales delante, el borde
+//!   del panel con foco lo dice pero se lee de lejos; el nombre, escrito, lo
+//!   confirma sin tener que buscarlo.
+//! - **Los tres botones de ratón**: `^C` y `ESC`, que son bytes que no se
+//!   teclean cómodo, y `KILL` —o `RESTART` si el proceso ya terminó—.
 
 use egui::{Align, Layout, Ui};
 
@@ -13,12 +25,7 @@ use crate::ui::{widgets, Action};
 
 pub const HEIGHT: f32 = 30.0;
 
-pub fn show(
-    ui: &mut Ui,
-    agent: Option<&Agent>,
-    input: &mut String,
-    focus_input: &mut bool,
-) -> Option<Action> {
+pub fn show(ui: &mut Ui, agent: Option<&Agent>) -> Option<Action> {
     let mut action = None;
     let alive = agent.is_some_and(|a| a.state.is_running());
 
@@ -41,7 +48,7 @@ pub fn show(
                 ui.spacing_mut().item_spacing.x = 6.0;
 
                 // A quién se le está escribiendo. Con ocho terminales delante,
-                // un `>` a secas no basta para saberlo.
+                // un `›` a secas no basta para saberlo.
                 if let Some(a) = agent {
                     ui.label(
                         egui::RichText::new(a.name.to_uppercase())
@@ -63,42 +70,18 @@ pub fn show(
                         }),
                 );
 
-                // Los botones van a la derecha, así que se reserva su hueco
-                // antes de darle al campo el ancho restante.
-                let field_w = (ui.available_width() - 168.0).max(60.0);
-
-                let resp = ui.add(
-                    egui::TextEdit::singleline(input)
-                        .font(theme::mono(theme::MONO_SM))
-                        .text_color(theme::pal().text)
-                        .frame(egui::Frame::NONE)
-                        .desired_width(field_w)
-                        .hint_text(
-                            egui::RichText::new(match agent {
-                                None => "sin sesiones: Ctrl-N para abrir una",
-                                Some(_) if alive => "escribe y Enter para enviar al proceso",
-                                Some(_) => "el proceso terminó",
-                            })
-                            .font(theme::mono(theme::MONO_SM))
-                            .color(theme::pal().text_faint),
-                        )
-                        .interactive(alive),
+                // El estado del teclado, dicho con palabras. No es decoración:
+                // es la única forma de enterarse de que se escribe arriba y no
+                // aquí, y de por qué ahora mismo no se puede escribir.
+                ui.label(
+                    egui::RichText::new(match agent {
+                        None => "sin sesiones: Ctrl-N para abrir una",
+                        Some(_) if alive => "lo que escribas va a este panel",
+                        Some(_) => "el proceso terminó",
+                    })
+                    .font(theme::mono(theme::MONO_SM))
+                    .color(theme::pal().text_faint),
                 );
-
-                // Al cambiar de panel el foco va al campo: lo normal tras
-                // seleccionarlo es querer contestarle, sobre todo si está
-                // BLOCKED esperando precisamente eso.
-                if *focus_input {
-                    *focus_input = false;
-                    if alive {
-                        resp.request_focus();
-                    }
-                }
-
-                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    action = Some(Action::Send(std::mem::take(input)));
-                    resp.request_focus();
-                }
 
                 let Some(agent) = agent else {
                     return;
