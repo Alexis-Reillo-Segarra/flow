@@ -236,12 +236,12 @@ pub fn missing_dir(form: &Form) -> bool {
 }
 
 /// El shell del sistema, que es con lo que llega precargado un panel nuevo.
+///
+/// Cuál es se decide en un solo sitio, [`presets::shell`]: aquí había una
+/// segunda copia de la respuesta, y las dos copias podían dejar de decir lo
+/// mismo sin que nada se quejara.
 pub fn shell() -> &'static str {
-    if cfg!(windows) {
-        "cmd"
-    } else {
-        "bash -i"
-    }
+    presets::shell().1
 }
 
 /// `full` es "ya no caben más paneles en esta sesión": el formulario se abre

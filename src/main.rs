@@ -66,6 +66,12 @@ fn main() -> eframe::Result<()> {
             // Chrome propio: la barra de título del sistema rompería la
             // estética. `ui::chrome` reimplementa arrastre, botones y
             // redimensionado por los bordes.
+            //
+            // Sin decoración se comporta igual en los tres sistemas, con una
+            // diferencia que está resuelta en `ui::chrome::resize_handles`: en
+            // macOS la ventana conserva el `Resizable` de AppKit y es el sistema
+            // el que redimensiona por los bordes, así que allí los tiradores
+            // propios sobran. Arrastrar y maximizar sí funcionan en los tres.
             .with_decorations(false)
             .with_resizable(true),
         ..Default::default()

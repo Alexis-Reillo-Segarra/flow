@@ -103,18 +103,26 @@ impl Projects {
 /// llamarías de viva voz («el flow», «el web-api»).
 pub fn name_of(dir: &str) -> String {
     let raw = dir.trim();
-    let trimmed = raw.trim_end_matches(['/', '\\']);
+    let trimmed = raw.trim_end_matches(SEPARADORES);
     // La raíz se dice a sí misma. Quitarle las barras la deja en nada, y un
     // botón sin texto en el formulario no habría forma de pulsarlo a sabiendas.
     if trimmed.is_empty() {
         return raw.to_owned();
     }
     trimmed
-        .rsplit(['/', '\\'])
+        .rsplit(SEPARADORES)
         .find(|s| !s.is_empty())
         .unwrap_or(trimmed)
         .to_owned()
 }
+
+/// Qué separa un tramo de ruta del siguiente, según quién esté mirando.
+///
+/// En Windows las dos barras valen y la gente mezcla las dos. Fuera **solo la
+/// inclinada**: la invertida es un carácter corriente dentro de un nombre de
+/// fichero, así que partir por ella dejaría una carpeta llamada `copia\vieja`
+/// en el formulario como «vieja», que no es como se llama.
+const SEPARADORES: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
 
 /// Dónde vive el fichero, siguiendo la costumbre de cada sistema en vez de
 /// dejarlo junto al ejecutable: en Windows `%APPDATA%`, y fuera el
@@ -136,12 +144,24 @@ mod tests {
 
     #[test]
     fn el_nombre_es_el_ultimo_tramo_de_la_ruta() {
-        assert_eq!(name_of(r"C:\Repos\projects\flow"), "flow");
         assert_eq!(name_of("/home/alexi/web-api"), "web-api");
         // Una barra de más al final no debe dejar el nombre en blanco: es lo
         // que sale de copiar la ruta desde un explorador de archivos.
         assert_eq!(name_of("/home/alexi/notas/"), "notas");
-        assert_eq!(name_of(r"D:\notas\\"), "notas");
+    }
+
+    /// La barra invertida separa tramos en Windows y **no** fuera, donde es un
+    /// carácter corriente dentro de un nombre de fichero. Partir por ella en
+    /// Linux dejaría una carpeta llamada `copia\vieja` como «vieja» en el
+    /// formulario, que no es como se llama.
+    #[test]
+    fn la_barra_invertida_solo_separa_donde_separa() {
+        if cfg!(windows) {
+            assert_eq!(name_of(r"C:\Repos\projects\flow"), "flow");
+            assert_eq!(name_of(r"D:\notas\\"), "notas");
+        } else {
+            assert_eq!(name_of(r"/home/alexi/copia\vieja"), r"copia\vieja");
+        }
     }
 
     #[test]

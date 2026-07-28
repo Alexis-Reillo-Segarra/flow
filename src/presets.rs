@@ -9,7 +9,8 @@
 //! Añadir uno nuevo es una línea en `CATALOG`.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// La forma con la que se dibuja un agente.
 ///
@@ -129,29 +130,84 @@ pub const AGENTS: &[Preset] = &[
 ];
 
 /// Comandos de uso diario que no son agentes pero se lanzan igual de a menudo.
-pub const TOOLS: &[Preset] = &[
-    Preset {
-        label: "shell",
-        mark: Mark::Chevron,
-        program: if cfg!(windows) { "cmd" } else { "bash" },
-        command: if cfg!(windows) { "cmd" } else { "bash -i" },
-        about: "Una terminal normal y corriente",
-    },
-    Preset {
-        label: "tests",
-        mark: Mark::Square,
-        program: "cargo",
-        command: "cargo test --color always",
-        about: "Los tests de este proyecto",
-    },
-    Preset {
-        label: "git",
-        mark: Mark::Dot,
-        program: "git",
-        command: "git status",
-        about: "Estado del repositorio",
-    },
-];
+///
+/// Es una función y no una constante por culpa del primero: cuál es «el shell»
+/// no se sabe hasta que se mira el entorno. Ver [`shell`].
+pub fn tools() -> &'static [Preset] {
+    static TOOLS: OnceLock<[Preset; 3]> = OnceLock::new();
+    TOOLS.get_or_init(|| {
+        let (program, command) = shell();
+        [
+            Preset {
+                label: "shell",
+                mark: Mark::Chevron,
+                program,
+                command,
+                about: "Una terminal normal y corriente",
+            },
+            Preset {
+                label: "tests",
+                mark: Mark::Square,
+                program: "cargo",
+                command: "cargo test --color always",
+                about: "Los tests de este proyecto",
+            },
+            Preset {
+                label: "git",
+                mark: Mark::Dot,
+                program: "git",
+                command: "git status",
+                about: "Estado del repositorio",
+            },
+        ]
+    })
+}
+
+/// El shell del usuario: el programa que se busca en el `PATH` y el comando con
+/// el que llega precargado un panel de «shell».
+///
+/// **Fuera de Windows no se da por hecho `bash`.** Era lo que había, y estaba
+/// mal en los dos sistemas donde flow no se desarrolla: en macOS el shell por
+/// defecto es `zsh` desde Catalina, así que abrir un panel de shell te sacaba
+/// del tuyo —sin tu `.zshrc`, sin tus alias, sin tu prompt—; y en una imagen
+/// mínima de Linux, o en un sistema de quien usa `fish`, puede no haber `bash`
+/// instalado, y entonces el botón «shell» del formulario **no aparecía**,
+/// porque la detección del `PATH` no encontraba nada que lanzar.
+///
+/// Lo que dice cuál es el shell de alguien es `$SHELL`, que lo pone el sistema
+/// al iniciar sesión. Se le quita la ruta y se queda el nombre —`/bin/zsh` →
+/// `zsh`— por dos motivos: el `PATH` es donde se busca, y el nombre es lo que
+/// se lee en el formulario, donde `/usr/local/bin/fish -i` no cabe.
+///
+/// Si `$SHELL` no está —un servicio, un contenedor, un `env -i`— se prueban por
+/// orden los tres que podrían estar, y el último es `sh`, que POSIX obliga a
+/// tener. Así el botón sale siempre.
+///
+/// Se calcula una vez: el shell de alguien no cambia a mitad de ejecución.
+pub fn shell() -> (&'static str, &'static str) {
+    static SHELL: OnceLock<(String, String)> = OnceLock::new();
+    let (program, command) = SHELL.get_or_init(|| {
+        if cfg!(windows) {
+            return ("cmd".to_owned(), "cmd".to_owned());
+        }
+        let program = std::env::var_os("SHELL")
+            .map(PathBuf::from)
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| {
+                ["bash", "zsh", "sh"]
+                    .into_iter()
+                    .find(|s| in_path(s))
+                    .unwrap_or("sh")
+                    .to_owned()
+            });
+        // `-i` para que sea un shell de verdad —con tu configuración cargada y
+        // tu prompt— y no un intérprete mudo. Lo entienden los tres.
+        let command = format!("{program} -i");
+        (program, command)
+    });
+    (program.as_str(), command.as_str())
+}
 
 /// La forma que le toca a un panel por cómo se llama.
 ///
@@ -164,7 +220,7 @@ pub fn mark_of(name: &str) -> Option<Mark> {
     let name = name.trim().to_lowercase();
     AGENTS
         .iter()
-        .chain(TOOLS.iter())
+        .chain(tools())
         .find(|p| p.label == name || p.program == name)
         .map(|p| p.mark)
 }
@@ -178,11 +234,7 @@ pub struct Installed(HashSet<&'static str>);
 
 impl Installed {
     pub fn detect() -> Self {
-        let names: Vec<&'static str> = AGENTS
-            .iter()
-            .chain(TOOLS.iter())
-            .map(|p| p.program)
-            .collect();
+        let names: Vec<&'static str> = AGENTS.iter().chain(tools()).map(|p| p.program).collect();
         Installed(names.into_iter().filter(|n| in_path(n)).collect())
     }
 
@@ -197,7 +249,7 @@ impl Installed {
 
     /// Las herramientas disponibles.
     pub fn tools(&self) -> impl Iterator<Item = &'static Preset> + '_ {
-        TOOLS.iter().filter(|p| self.has(p.program))
+        tools().iter().filter(|p| self.has(p.program))
     }
 
     pub fn agent_count(&self) -> usize {
@@ -207,8 +259,15 @@ impl Installed {
 
 /// ¿Existe `name` como ejecutable en el PATH?
 ///
-/// En Windows hay que probar además las extensiones de `PATHEXT`, porque casi
-/// ningún CLI de Node es un `.exe`: `claude` suele ser `claude.cmd`.
+/// Cada sistema tiene su forma de decir «esto se puede ejecutar», y las dos
+/// están aquí porque las dos hacen falta:
+///
+/// - En **Windows** hay que probar además las extensiones de `PATHEXT`, porque
+///   casi ningún CLI de Node es un `.exe`: `claude` suele ser `claude.cmd`.
+/// - En **Unix** lo que manda es el bit de ejecución, no la extensión. Sin
+///   mirarlo, un fichero cualquiera que se llame como un agente —un `README`
+///   sin extensión, un script a medio escribir— lo daría por instalado y el
+///   formulario ofrecería lanzar algo que no arranca.
 fn in_path(name: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
         return false;
@@ -227,15 +286,29 @@ fn in_path(name: &str) -> bool {
 
     std::env::split_paths(&path).any(|dir| {
         let base = dir.join(name);
-        if base.is_file() {
+        if ejecutable(&base) {
             return true;
         }
         exts.iter().any(|ext| {
             let mut with_ext = PathBuf::from(base.as_os_str());
             with_ext.as_mut_os_string().push(ext);
-            with_ext.is_file()
+            ejecutable(&with_ext)
         })
     })
+}
+
+#[cfg(unix)]
+fn ejecutable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    // Cualquiera de los tres bits: quién lo puede ejecutar es cosa del sistema
+    // al lanzarlo, y comprobarlo aquí de verdad pediría mirar el usuario y los
+    // grupos del proceso para nada.
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn ejecutable(path: &Path) -> bool {
+    path.is_file()
 }
 
 #[cfg(test)]
@@ -244,7 +317,7 @@ mod tests {
 
     #[test]
     fn el_catalogo_esta_bien_formado() {
-        for p in AGENTS.iter().chain(TOOLS.iter()) {
+        for p in AGENTS.iter().chain(tools()) {
             assert!(!p.label.is_empty());
             assert!(!p.about.is_empty());
             // El comando tiene que empezar por el programa que se busca, o la
@@ -262,7 +335,7 @@ mod tests {
     #[test]
     fn no_hay_etiquetas_repetidas() {
         let mut seen = HashSet::new();
-        for p in AGENTS.iter().chain(TOOLS.iter()) {
+        for p in AGENTS.iter().chain(tools()) {
             assert!(seen.insert(p.label), "etiqueta repetida: {}", p.label);
         }
     }
@@ -273,5 +346,55 @@ mod tests {
         let shell = if cfg!(windows) { "cmd" } else { "sh" };
         assert!(in_path(shell), "no se encontró `{shell}` en el PATH");
         assert!(!in_path("no-existe-este-binario-xyzzy-42"));
+    }
+
+    /// El shell es **el del usuario**, no `bash` por decreto: en macOS es `zsh`
+    /// y en un sistema mínimo puede no haber `bash` instalado, y entonces el
+    /// botón «shell» del formulario no aparecía.
+    #[test]
+    fn el_shell_es_el_del_usuario_y_siempre_hay_uno() {
+        let (program, command) = shell();
+        assert!(!program.is_empty(), "el catálogo se quedó sin shell");
+        assert!(command.starts_with(program));
+        // Y es un nombre para buscar en el PATH, no una ruta: `$SHELL` viene
+        // como `/bin/zsh` y lo que se busca —y lo que se lee en el formulario—
+        // es `zsh`.
+        assert!(
+            !program.contains('/') && !program.contains('\\'),
+            "el shell llegó como una ruta y no como un nombre: {program}"
+        );
+        // Sea cual sea, tiene que estar de verdad en esta máquina: si no, el
+        // formulario se quedaría sin el único botón que hay siempre.
+        assert!(
+            Installed::detect().has(program),
+            "el shell elegido (`{program}`) no está en el PATH"
+        );
+    }
+
+    /// Un fichero cualquiera que se llame como un agente no cuenta: fuera de
+    /// Windows lo que dice si algo se puede lanzar es el bit de ejecución.
+    #[test]
+    #[cfg(unix)]
+    fn en_unix_un_fichero_sin_permiso_de_ejecucion_no_es_un_ejecutable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("flow-test-ejec-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("parece-un-agente");
+        std::fs::write(&path, "no soy un programa").unwrap();
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!ejecutable(&path), "un fichero sin +x pasó por ejecutable");
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            ejecutable(&path),
+            "un fichero con +x no pasó por ejecutable"
+        );
+
+        // Y un directorio nunca lo es, aunque lleve los bits puestos.
+        assert!(!ejecutable(&dir));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

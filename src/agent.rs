@@ -554,11 +554,18 @@ mod tests_del_proceso {
     /// nada: la interfaz no sabe que está muerto hasta que lo mira.
     #[test]
     fn a_un_panel_fallido_se_le_puede_hablar_sin_consecuencias() {
+        // Un directorio que no existe en ningún sistema: la ruta se escribe
+        // desde la raíz de cada uno, que es lo único que se puede dar por hecho.
+        let cwd = if cfg!(windows) {
+            "C:/no/existe"
+        } else {
+            "/no/existe"
+        };
         let mut a = Agent::spawn(
             1,
             "imposible".to_owned(),
             "loquesea".to_owned(),
-            "C:/no/existe".to_owned(),
+            cwd.to_owned(),
             80,
             24,
             &[],

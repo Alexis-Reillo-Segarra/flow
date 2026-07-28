@@ -209,6 +209,20 @@ pub fn saluda() -> &'static str {
     }
 }
 
+/// Lo mismo, pero diciendo lo que se le pida: para los tests que necesitan
+/// distinguir dos procesos por lo que escriben o por su línea de comando.
+///
+/// Existe para que ningún test escriba `cmd /C` a mano. Los había, y eran los
+/// únicos que hacían falso el «multiplataforma»: pasaban en Windows y fallaban
+/// en Linux y en macOS, donde `cmd` no existe.
+pub fn eco(texto: &str) -> String {
+    if cfg!(windows) {
+        format!("cmd /C echo {texto}")
+    } else {
+        format!("echo {texto}")
+    }
+}
+
 /// Un agente lanzado de verdad, con el directorio actual y sin entorno.
 pub fn agente(id: u64, nombre: &str, cmd: &str) -> Agent {
     Agent::spawn(

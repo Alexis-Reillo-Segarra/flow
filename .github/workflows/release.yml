@@ -9,19 +9,70 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  # Un binario por sistema y arquitectura, todos a la misma release.
+  #
+  # Antes solo salía el `.exe`, y el README mandaba a Linux y a macOS a
+  # compilar desde fuente. Compilar desde fuente sigue estando —es una línea y
+  # no pide nada raro— pero ya no es el único camino: flow es un fichero suelto
+  # que se copia donde sea y se ejecuta, y eso vale igual en los tres sistemas.
+  #
+  # Los nombres llevan sistema y arquitectura porque en la página de la release
+  # van los cuatro juntos y hay que poder elegir sin abrirlos. macOS va en dos
+  # arquitecturas de verdad y no en un binario universal: `lipo` pediría montar
+  # las dos compilaciones en una máquina, y dos ficheros bien nombrados
+  # resuelven lo mismo sin nada que pueda salir mal a medias.
+  build:
+    name: ${{ matrix.nombre }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nombre: Windows x86_64
+            artefacto: flow-windows-x86_64.exe
+            binario: target/release/flow.exe
+          - os: ubuntu-latest
+            nombre: Linux x86_64
+            artefacto: flow-linux-x86_64
+            binario: target/release/flow
+          - os: macos-latest
+            nombre: macOS arm64
+            artefacto: flow-macos-arm64
+            binario: target/release/flow
+          - os: macos-13
+            nombre: macOS x86_64
+            artefacto: flow-macos-x86_64
+            binario: target/release/flow
     steps:
       - uses: actions/checkout@v4
+
+      - name: Bibliotecas de ventanas (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
+
+      # El nombre del artefacto es el que se descarga, así que se le pone aquí
+      # y no en el `Cargo.toml`: el binario se llama `flow` en las tres máquinas
+      # y subir cuatro ficheros con el mismo nombre no serviría de nada.
+      - name: Ponerle su nombre
+        shell: bash
+        run: cp "${{ matrix.binario }}" "${{ matrix.artefacto }}"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: flow-windows-x86_64
-          path: target/release/flow.exe
+          name: ${{ matrix.artefacto }}
+          path: ${{ matrix.artefacto }}
+
       - name: Publicar en la release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/flow.exe
+          files: ${{ matrix.artefacto }}

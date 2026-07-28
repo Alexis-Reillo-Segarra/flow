@@ -6,13 +6,55 @@ on:
   pull_request:
 
 jobs:
+  # Los tres sistemas, no uno.
+  #
+  # Antes esto solo corría en Windows, que es donde flow se desarrolla, mientras
+  # el README prometía que el código es multiplataforma. La promesa era de
+  # palabra: nada comprobaba que compilase en Linux ni en macOS, y de hecho no
+  # pasaba —había tests que lanzaban `cmd /C`, y el catálogo daba por hecho que
+  # el shell de todo el mundo es `bash`—. Con la matriz, romperlo cuesta un PR
+  # en rojo en vez de un issue de alguien seis meses después.
+  #
+  # `macos-latest` es Apple Silicon y `macos-13` es Intel: son dos arquitecturas
+  # distintas y las dos se publican en la release, así que las dos se prueban.
   test:
-    runs-on: windows-latest
+    name: ${{ matrix.nombre }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Sin esto, el primer sistema que falle cancela los otros dos y te quedas
+      # sin saber si el fallo era de ese sistema o de todos.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nombre: Windows
+          - os: ubuntu-latest
+            nombre: Linux
+          - os: macos-latest
+            nombre: macOS (Apple Silicon)
+          - os: macos-13
+            nombre: macOS (Intel)
     steps:
       - uses: actions/checkout@v4
+
+      # Lo único que flow necesita del sistema, y solo en Linux: las bibliotecas
+      # de ventanas contra las que enlaza cualquier GUI. Windows y macOS traen
+      # las suyas puestas. Es la misma lista que el README le pide a quien
+      # compile en Linux, así que si aquí hace falta una más, allí también.
+      - name: Bibliotecas de ventanas (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+
+      # Los tests no abren ninguna ventana —ver `src/testkit.rs`— así que no
+      # hace falta pantalla ni servidor X de mentira en la máquina de CI.
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings

@@ -1092,8 +1092,10 @@ mod tests_del_estado {
         let foco = f.sessions[0].focused;
         let inbox = f.sessions[0].inbox.clone();
         std::fs::create_dir_all(&inbox).unwrap();
-        std::fs::write(inbox.join("1.cmd"), "cmd /C echo primero").unwrap();
-        std::fs::write(inbox.join("2.cmd"), "cmd /C echo segundo").unwrap();
+        let primero = testkit::eco("primero");
+        let segundo = testkit::eco("segundo");
+        std::fs::write(inbox.join("1.cmd"), &primero).unwrap();
+        std::fs::write(inbox.join("2.cmd"), &segundo).unwrap();
         std::fs::write(inbox.join("3.cmd"), "   ").unwrap();
 
         f.collect_requests();
@@ -1103,8 +1105,8 @@ mod tests_del_estado {
             3,
             "no salió un panel por fichero"
         );
-        assert_eq!(f.sessions[0].panes[1].cmdline, "cmd /C echo primero");
-        assert_eq!(f.sessions[0].panes[2].cmdline, "cmd /C echo segundo");
+        assert_eq!(f.sessions[0].panes[1].cmdline, primero);
+        assert_eq!(f.sessions[0].panes[2].cmdline, segundo);
         assert_eq!(f.sessions[0].focused, foco, "el panel pedido robó el foco");
         assert_eq!(
             std::fs::read_dir(&inbox).unwrap().count(),
@@ -1123,7 +1125,7 @@ mod tests_del_estado {
         }
         let inbox = f.sessions[0].inbox.clone();
         std::fs::create_dir_all(&inbox).unwrap();
-        std::fs::write(inbox.join("1.cmd"), "cmd /C echo nadie").unwrap();
+        std::fs::write(inbox.join("1.cmd"), testkit::eco("nadie")).unwrap();
 
         f.collect_requests();
         assert_eq!(f.sessions[0].panes.len(), crate::session::MAX_PANES);

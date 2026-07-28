@@ -260,7 +260,17 @@ fn window_button(ui: &mut Ui, kind: Btn) -> Response {
 /// Sin decoración del sistema winit no hace el hit-testing por nosotros, así
 /// que hay que declararlas a mano. Van en una capa por encima de todo para que
 /// ganen a cualquier widget que llegue hasta el borde.
+///
+/// **En macOS no van, y es lo correcto.** Ahí una ventana sin decoración sigue
+/// llevando el `Resizable` de AppKit, así que el sistema ya redimensiona por los
+/// bordes él solo —con su cursor y su comportamiento de siempre—, y la orden que
+/// se manda aquí no existe: `drag_resize_window` de winit devuelve
+/// `NotSupported` en macOS y no hay nada detrás. Dejarlas puestas era poner ocho
+/// zonas que cambian el cursor y no hacen nada, tapando al sistema, que sí sabe.
 pub fn resize_handles(ctx: &Context) {
+    if cfg!(target_os = "macos") {
+        return;
+    }
     if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
         return; // Maximizada no se redimensiona por los bordes.
     }
@@ -426,6 +436,10 @@ mod tests {
     /// Los ocho tiradores de borde y el marco de la ventana se dibujan. Es el
     /// precio de no tener barra de título del sistema: el redimensionado por los
     /// bordes lo pone flow.
+    ///
+    /// **Menos en macOS**, donde lo pone el sistema y esto tiene que quitarse de
+    /// en medio: ver `resize_handles`. Los dos casos se comprueban aquí, cada uno
+    /// en su sistema, porque la diferencia es justo lo que hay que no romper.
     #[test]
     fn los_bordes_de_redimensionado_y_el_marco_se_dibujan() {
         let mut v = Ventana::nueva();
@@ -433,6 +447,12 @@ mod tests {
             resize_handles(ctx);
             window_border(ctx);
         });
+
+        let hay_tirador = |v: &Ventana, nombre: &str| {
+            v.ctx()
+                .memory(|m| m.area_rect(Id::new(("resize", nombre))))
+                .is_some()
+        };
 
         // Con el puntero encima de cada esquina y cada canto, que es donde
         // cambia el cursor.
@@ -449,6 +469,17 @@ mod tests {
         ] {
             v.puntero(p);
             v.frame_ctx(resize_handles);
+        }
+
+        for nombre in ["n", "s", "e", "w", "nw", "ne", "sw", "se"] {
+            if cfg!(target_os = "macos") {
+                assert!(
+                    !hay_tirador(&v, nombre),
+                    "el tirador «{nombre}» tapa al sistema en macOS, donde no puede funcionar"
+                );
+            } else {
+                assert!(hay_tirador(&v, nombre), "falta el tirador «{nombre}»");
+            }
         }
     }
 

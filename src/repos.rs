@@ -28,8 +28,9 @@
 //! trabajas en `C:\Repos\projects\flow`, entonces `C:\Repos\projects` es una
 //! huerta de repositorios y mirar ahí cuesta un `read_dir`. A eso se le suman los
 //! sitios donde los ponen las herramientas por defecto —`~\source\repos` de
-//! Visual Studio, `~\Documents\GitHub` de GitHub Desktop— y los nombres que usa
-//! todo el mundo.
+//! Visual Studio, `~/Developer` de Xcode, `~/Documents/GitHub` de GitHub
+//! Desktop— y los nombres que usa todo el mundo. Cuáles se prueban depende del
+//! sistema: ver `HOME_DIRS` y `home_dirs_del_sistema`.
 //!
 //! Con eso, `DEPTH` niveles y podando al encontrar, esto son unos cientos de
 //! `read_dir`. Aun así corre en un hilo aparte: el coste real de tocar el disco
@@ -82,18 +83,43 @@ const SKIP: [&str; 12] = [
     ".next",
 ];
 
-/// Los nombres que la gente le pone a la carpeta donde guarda sus repos, más los
-/// que crean solas las herramientas.
-const HOME_DIRS: [&str; 8] = [
-    "source/repos",     // Visual Studio
-    "Documents/GitHub", // GitHub Desktop
+/// Los nombres que la gente le pone a la carpeta donde guarda sus repos.
+///
+/// Van los de todas partes; los que solo existen en un sistema están en
+/// [`home_dirs_del_sistema`]. Se prueban las dos capitalizaciones porque en
+/// Linux el sistema de ficheros distingue mayúsculas y `~/repos` y `~/Repos`
+/// son dos sitios distintos: probar los dos cuesta un `is_dir` que falla.
+const HOME_DIRS: [&str; 12] = [
     "repos",
     "Repos",
     "dev",
+    "Dev",
     "code",
+    "Code",
     "projects",
+    "Projects",
     "git",
+    "src",
+    "work",
+    "workspace",
 ];
+
+/// Los sitios que crea sola una herramienta, y que por eso solo existen donde
+/// esa herramienta existe.
+fn home_dirs_del_sistema() -> &'static [&'static str] {
+    if cfg!(windows) {
+        // Visual Studio pone lo suyo en `~\source\repos`, y GitHub Desktop en
+        // `~\Documents\GitHub`.
+        &["source/repos", "Documents/GitHub"]
+    } else if cfg!(target_os = "macos") {
+        // `~/Developer` es la carpeta que propone Xcode, y el Finder hasta le
+        // pone su icono de martillo: en un Mac con herramientas de desarrollo
+        // es el sitio más probable de todos.
+        &["Developer", "Documents/GitHub"]
+    } else {
+        &[]
+    }
+}
 
 /// Un repositorio encontrado.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,7 +159,7 @@ pub fn roots(recent: &[String]) -> Vec<PathBuf> {
     }
 
     if let Some(home) = home() {
-        for name in HOME_DIRS {
+        for name in HOME_DIRS.iter().chain(home_dirs_del_sistema()) {
             push(home.join(name));
         }
         // El propio perfil, pero solo su primer nivel: ahí es donde acaba el
@@ -213,13 +239,22 @@ fn label(root: &Path, dir: &Path) -> String {
 /// botones de ruta es el que está puesto ahora. Comparando las cadenas a pelo,
 /// una ruta pegada del explorador con la otra barra deja los diez botones
 /// apagados aunque uno de ellos sea justo el sitio al que apunta el campo.
+///
+/// **Las dos indulgencias son de Windows y solo se aplican allí.** Fuera, la
+/// barra invertida no separa nada: es un carácter válido dentro de un nombre de
+/// fichero, así que un directorio que se llame `notas\viejas` no es lo mismo
+/// que `notas/viejas`, y las mayúsculas tampoco sobran, porque `~/Repos` y
+/// `~/repos` son dos carpetas distintas y pueden existir las dos a la vez.
+/// Perdonarlas fuera de Windows no es ser amable: es dar por iguales dos sitios
+/// que no lo son, y eso acaba en una sesión abierta donde no era.
 pub fn same_path(a: &str, b: &str) -> bool {
     let norm = |s: &str| {
-        let s = s.trim_end_matches(['/', '\\']).replace('/', "\\");
         if cfg!(windows) {
-            s.to_lowercase()
+            s.trim_end_matches(['/', '\\'])
+                .replace('/', "\\")
+                .to_lowercase()
         } else {
-            s
+            s.trim_end_matches('/').to_owned()
         }
     };
     norm(a) == norm(b)
@@ -480,6 +515,33 @@ mod tests {
             candidatas.iter().all(|p| p.parent().is_some()),
             "se coló la raíz de una unidad: {candidatas:?}"
         );
+    }
+
+    /// Las dos indulgencias al comparar rutas —la barra y las mayúsculas— son
+    /// de Windows, y fuera no se aplican: allí `notas\viejas` es **un nombre de
+    /// fichero** con una barra invertida dentro, y `~/Repos` y `~/repos` son dos
+    /// carpetas que pueden existir a la vez. Darlas por iguales acabaría con una
+    /// sesión abierta donde no era.
+    #[test]
+    fn las_rutas_se_comparan_como_las_entiende_cada_sistema() {
+        // Lo que vale en todas partes: la misma ruta es la misma, y una barra de
+        // más al final —lo que sale de copiarla de un explorador— no la cambia.
+        assert!(same_path("/home/alexi/flow", "/home/alexi/flow/"));
+        assert!(!same_path("/home/alexi/flow", "/home/alexi/otro"));
+
+        if cfg!(windows) {
+            assert!(same_path(r"C:\Repos\flow", "c:/repos/flow"));
+            assert!(same_path(r"C:\Repos\flow\", r"C:\REPOS\FLOW"));
+        } else {
+            assert!(
+                !same_path("/casa/Repos", "/casa/repos"),
+                "se dieron por iguales dos carpetas que existen a la vez"
+            );
+            assert!(
+                !same_path("/casa/notas\\viejas", "/casa/notas/viejas"),
+                "una barra invertida dentro de un nombre se tomó por un separador"
+            );
+        }
     }
 
     #[test]
