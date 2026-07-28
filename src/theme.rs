@@ -1146,3 +1146,73 @@ mod tests {
         assert!(!p.set("bakcground", rgb(0x000000)));
     }
 }
+
+#[cfg(test)]
+mod tests_de_la_paleta {
+    use super::*;
+
+    /// La paleta de 256 se resuelve por sus tres tramos: los 16 con nombre
+    /// salen del tema —así cambian al cambiar de tema—, y el cubo de 216 y la
+    /// rampa de 24 grises se calculan, que es lo que dice el estándar.
+    #[test]
+    fn los_doscientos_cincuenta_y_seis_colores_salen_de_donde_toca() {
+        for i in 0..16u8 {
+            assert_eq!(ansi256(i), pal().ansi[i as usize]);
+        }
+
+        // El cubo: el 16 es negro y el 231, blanco.
+        assert_eq!(ansi256(16), Color32::from_rgb(0, 0, 0));
+        assert_eq!(ansi256(231), Color32::from_rgb(255, 255, 255));
+
+        // La rampa de grises: neutra de punta a punta y siempre creciendo.
+        let mut previo = 0;
+        for i in 232..=255u8 {
+            let c = ansi256(i);
+            assert_eq!(c.r(), c.g(), "el gris {i} tiene tono");
+            assert_eq!(c.g(), c.b(), "el gris {i} tiene tono");
+            assert!(c.r() > previo, "la rampa de grises no sube en el {i}");
+            previo = c.r();
+        }
+    }
+
+    /// Un tema se busca por su nombre tal y como se escribe en el fichero, con
+    /// espacios de más incluidos, y uno que no está no se parece a otro.
+    #[test]
+    fn un_tema_se_busca_por_su_nombre() {
+        assert_eq!(index_of("flow"), Some(0));
+        assert_eq!(index_of("  nord  "), index_of("nord"));
+        assert_eq!(index_of("ninguno-asi"), None);
+    }
+
+    /// La lista se instala una sola vez por ejecución: un índice de tema tiene
+    /// que significar lo mismo de principio a fin, porque es lo que se guarda.
+    /// Volver a instalarla no la cambia.
+    #[test]
+    fn la_lista_de_temas_no_se_puede_cambiar_a_media_ejecucion() {
+        let antes: Vec<String> = themes().iter().map(|p| p.name.clone()).collect();
+        install_themes(vec![builtin()[0].clone()]);
+        let despues: Vec<String> = themes().iter().map(|p| p.name.clone()).collect();
+        assert_eq!(antes, despues, "la lista de temas cambió a media ejecución");
+    }
+
+    /// La cara oscura del acento se puede escribir a mano en el fichero, y
+    /// arrastra consigo el halo del foco: son el mismo color visto de dos
+    /// formas, y dejarlos sueltos deja un contorno de otro tono.
+    #[test]
+    fn la_cara_oscura_del_acento_arrastra_su_halo() {
+        let mut p = builtin()[0].clone();
+        let antes = p.halo_focus;
+        assert!(p.set("accent_stroke", Color32::from_rgb(0x1e, 0x82, 0x5f)));
+        assert_eq!(p.accent, Color32::from_rgb(0x1e, 0x82, 0x5f));
+        assert_ne!(p.halo_focus, antes, "el halo se quedó con el color viejo");
+    }
+
+    /// Un nombre de color que no existe se dice que no existe, en vez de
+    /// tragárselo: en el fichero de configuración, una errata callada es una
+    /// línea que no hace nada y no hay forma de saber por qué.
+    #[test]
+    fn un_color_que_no_existe_se_dice() {
+        let mut p = builtin()[0].clone();
+        assert!(!p.set("no_existe_este_color", Color32::RED));
+    }
+}

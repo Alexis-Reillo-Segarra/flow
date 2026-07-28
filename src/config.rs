@@ -101,9 +101,31 @@ pub fn save_theme(name: &str) {
     let _ = std::fs::write(path, text);
 }
 
+// Adónde escribe un test en vez de al fichero del usuario.
+//
+// Sin esto, cualquier test que llegue a `save_theme` —el selector de temas
+// acaba en él— le cambia el tema al que esté ejecutando `cargo test`. Es por
+// hilo y no global a propósito: cada test corre en el suyo, así que dos pueden
+// redirigirlo a la vez sin pisarse. Ver `redirigir_para_test`.
+#[cfg(test)]
+thread_local! {
+    static FICHERO_DE_TEST: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Manda la configuración de **este hilo** a otro fichero.
+#[cfg(test)]
+pub fn redirigir_para_test(path: PathBuf) {
+    FICHERO_DE_TEST.with(|f| *f.borrow_mut() = Some(path));
+}
+
 /// Dónde vive el fichero: al lado de la lista de proyectos, siguiendo la
 /// costumbre de cada sistema en vez de dejarlo junto al ejecutable.
 pub fn file() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = FICHERO_DE_TEST.with(|f| f.borrow().clone()) {
+        return Some(path);
+    }
     let base = if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)
     } else {
@@ -403,5 +425,99 @@ mod tests {
         let cfg = parse("[cosas]\nbg = #000000\n", temas());
         assert_eq!(cfg.warnings.len(), 2, "{:?}", cfg.warnings);
         assert!(cfg.customs.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests_del_fichero {
+    use super::*;
+
+    fn fichero(nombre: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("flow-tests").join("config");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(nombre);
+        let _ = std::fs::remove_file(&p);
+        redirigir_para_test(p.clone());
+        p
+    }
+
+    /// La primera vez no hay fichero, así que se escribe entero: la plantilla
+    /// comentada con todos los nombres de color que se pueden tocar. Es lo que
+    /// hace que el fichero se pueda editar sin ir a buscar la documentación.
+    #[test]
+    fn la_primera_vez_se_escribe_la_plantilla_comentada() {
+        let p = fichero("plantilla");
+        save_theme("nord");
+
+        let texto = std::fs::read_to_string(&p).unwrap();
+        assert!(texto.contains("theme = nord"));
+        assert!(texto.contains('#'), "la plantilla salió sin comentarios");
+        assert!(texto.contains("accent"), "la plantilla no nombra los colores");
+    }
+
+    /// Cambiar de tema **conserva el resto del fichero**: ahí viven los temas
+    /// propios de quien lo haya escrito, y se pierden si se reescribe entero.
+    #[test]
+    fn cambiar_de_tema_no_se_lleva_por_delante_lo_demas() {
+        let p = fichero("con-temas-propios");
+        std::fs::write(
+            &p,
+            "theme = gruvbox\n\n[theme mío]\nbase = flow\naccent = #d3869b\n",
+        )
+        .unwrap();
+
+        save_theme("nord");
+        let texto = std::fs::read_to_string(&p).unwrap();
+        assert!(texto.contains("theme = nord"));
+        assert!(!texto.contains("theme = gruvbox"), "quedó el tema viejo");
+        assert!(texto.contains("[theme mío]"), "se perdió el tema propio");
+        assert!(texto.contains("#d3869b"), "se perdió el color del tema propio");
+    }
+
+    /// Un fichero que solo tiene temas propios y no dice cuál está puesto: la
+    /// línea se le añade delante en vez de reescribirlo.
+    #[test]
+    fn a_un_fichero_sin_tema_puesto_se_le_pone_delante() {
+        let p = fichero("sin-linea-de-tema");
+        std::fs::write(&p, "[theme mío]\nbase = flow\n").unwrap();
+
+        save_theme("catppuccin");
+        let texto = std::fs::read_to_string(&p).unwrap();
+        assert!(texto.starts_with("theme = catppuccin"));
+        assert!(texto.contains("[theme mío]"));
+    }
+
+    /// Lo que hay escrito se lee al arrancar, y lo que no se entiende se avisa
+    /// sin parar lo demás.
+    #[test]
+    fn lo_escrito_se_lee_del_disco() {
+        let p = fichero("para-leer");
+        std::fs::write(&p, "theme = nord\n\n[theme propio]\nbase = flow\nbg = #101014\n").unwrap();
+
+        let cfg = load(&crate::theme::builtin());
+        assert_eq!(cfg.theme.as_deref(), Some("nord"));
+        assert_eq!(cfg.customs.len(), 1);
+        assert_eq!(cfg.customs[0].name, "propio");
+    }
+
+    /// Sin fichero, la configuración es la de fábrica y no se queja: no haberlo
+    /// escrito nunca es lo normal.
+    #[test]
+    fn sin_fichero_no_hay_nada_que_leer_ni_que_avisar() {
+        let _p = fichero("que-no-existe");
+        let cfg = load(&crate::theme::builtin());
+        assert!(cfg.theme.is_none());
+        assert!(cfg.customs.is_empty());
+        assert!(cfg.warnings.is_empty());
+    }
+
+    /// El fichero de verdad vive donde manda la costumbre de cada sistema. Solo
+    /// se mira la ruta: escribir ahí es justo lo que los tests no hacen.
+    #[test]
+    fn el_fichero_de_verdad_esta_donde_toca() {
+        FICHERO_DE_TEST.with(|f| *f.borrow_mut() = None);
+        if let Some(p) = file() {
+            assert!(p.ends_with(std::path::Path::new("flow").join("config")));
+        }
     }
 }

@@ -721,3 +721,396 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, hint: &str) -> egui::Resp
 
     resp
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::Ventana;
+
+    fn form_de(kind: Kind) -> Form {
+        let mut f = Form::new(".".to_owned());
+        f.show(kind, None);
+        f
+    }
+
+    fn pintar(v: &mut Ventana, form: &mut Form, full: bool) -> Option<Action> {
+        let instalados = presets::Installed::detect();
+        let proyectos = crate::projects::Projects::load();
+        let repos: Vec<crate::repos::Repo> = Vec::new();
+        v.frame_ctx(|ctx| show(ctx, form, &instalados, &proyectos, &repos, full))
+    }
+
+    /// Una sesión pregunta tres cosas y un panel dos. La que falta no está
+    /// contestada de antemano: es que no existe, porque un panel hereda el
+    /// directorio de su sesión y no puede desviarse.
+    #[test]
+    fn un_panel_no_pregunta_por_el_directorio() {
+        let sesion = form_de(Kind::Session);
+        assert_eq!(sesion.steps(), &SESSION_STEPS);
+        assert_eq!(sesion.step, Step::Where);
+
+        let panel = form_de(Kind::Pane);
+        assert_eq!(panel.steps(), &PANE_STEPS);
+        assert_eq!(panel.step, Step::What);
+        assert!(
+            !panel.steps().contains(&Step::Where),
+            "el formulario de un panel pregunta por el directorio"
+        );
+    }
+
+    /// De un paso no se sale sin contestarlo, y el aviso es del paso en el que
+    /// estás. Es la razón de haber partido el cuadro: antes se llegaba a pulsar
+    /// LANZAR y el error salía abajo hablando de un campo cuatro rótulos más
+    /// arriba.
+    #[test]
+    fn no_se_pasa_de_un_paso_sin_contestarlo() {
+        let mut f = form_de(Kind::Session);
+        f.cwd.clear();
+        assert_eq!(f.blocked(), Some("hace falta un directorio"));
+        f.advance();
+        assert_eq!(f.step, Step::Where, "avanzó sin directorio");
+
+        f.cwd = ".".to_owned();
+        f.advance();
+        assert_eq!(f.step, Step::What);
+        assert_eq!(f.blocked(), Some("hace falta un comando"));
+        f.advance();
+        assert_eq!(f.step, Step::What, "avanzó sin comando");
+
+        f.cmd = "claude".to_owned();
+        f.advance();
+        assert_eq!(f.step, Step::Launch);
+        assert!(f.is_last());
+        assert_eq!(f.blocked(), None, "el último paso no bloquea");
+    }
+
+    /// Volver nunca está bloqueado, y lo escrito sigue donde estaba: retroceder
+    /// es justo lo que haces cuando te has equivocado.
+    #[test]
+    fn volver_atras_no_borra_lo_escrito() {
+        let mut f = form_de(Kind::Session);
+        f.cwd = "C:/algo".to_owned();
+        f.advance();
+        f.cmd = "cargo test".to_owned();
+        f.advance();
+        assert_eq!(f.step, Step::Launch);
+
+        f.back();
+        assert_eq!(f.step, Step::What);
+        f.back();
+        assert_eq!(f.step, Step::Where);
+        f.back();
+        assert_eq!(f.step, Step::Where, "se salió del formulario por detrás");
+        assert_eq!(f.cwd, "C:/algo");
+        assert_eq!(f.cmd, "cargo test");
+    }
+
+    /// Un panel nace con el shell puesto y una sesión en blanco: es lo que uno
+    /// quiere nueve de cada diez veces, y deja el panel a dos Enter.
+    #[test]
+    fn un_panel_nace_con_el_shell_puesto() {
+        assert_eq!(form_de(Kind::Pane).cmd, shell());
+        assert!(form_de(Kind::Session).cmd.is_empty());
+    }
+
+    /// Reabrir vuelve al primer paso. Reaparecer donde lo dejaste sonaría a
+    /// favor y es lo contrario: el comando se ha borrado, así que el resumen
+    /// del último paso hablaría de algo que ya no existe.
+    #[test]
+    fn reabrir_vuelve_al_principio() {
+        let mut f = form_de(Kind::Session);
+        f.cwd = ".".to_owned();
+        f.advance();
+        f.cmd = "claude".to_owned();
+        f.advance();
+        assert_eq!(f.step, Step::Launch);
+
+        f.show(Kind::Session, None);
+        assert_eq!(f.step, Step::Where);
+        assert!(f.cmd.is_empty(), "el comando sobrevivió a reabrir");
+    }
+
+    /// El directorio se conserva entre aperturas —abrir dos sesiones seguidas en
+    /// el mismo sitio es lo normal— salvo que se imponga uno, que es lo que pasa
+    /// al añadir un panel.
+    #[test]
+    fn el_directorio_se_conserva_salvo_que_se_imponga_otro() {
+        let mut f = form_de(Kind::Session);
+        f.cwd = "C:/proyecto".to_owned();
+        f.show(Kind::Session, None);
+        assert_eq!(f.cwd, "C:/proyecto");
+
+        f.show(Kind::Pane, Some("C:/otro".to_owned()));
+        assert_eq!(f.cwd, "C:/otro");
+    }
+
+    /// Cerrar deja el formulario sin nada que reabrir a medias.
+    #[test]
+    fn cerrar_lo_deja_limpio() {
+        let mut f = form_de(Kind::Pane);
+        f.name = "algo".to_owned();
+        f.error = Some("lo que sea".to_owned());
+        f.close();
+        assert!(!f.open);
+        assert!(f.name.is_empty());
+        assert!(f.cmd.is_empty());
+        assert!(f.error.is_none());
+    }
+
+    /// Sin nombre, el panel se llama como su comando: el primer token, sin ruta
+    /// ni comillas, que es lo que uno diría de viva voz.
+    #[test]
+    fn el_nombre_sale_del_comando_cuando_no_lo_pones() {
+        let mut f = form_de(Kind::Pane);
+        f.cmd = "cargo test".to_owned();
+        assert_eq!(f.effective_name(), "cargo");
+
+        f.name = "  suite  ".to_owned();
+        assert_eq!(f.effective_name(), "suite", "no se recortan los espacios");
+    }
+
+    #[test]
+    fn del_comando_al_nombre_se_cae_la_ruta_y_las_comillas() {
+        assert_eq!(name_of("claude"), "claude");
+        assert_eq!(name_of("C:/bin/claude.exe --algo"), "claude.exe");
+        assert_eq!(name_of("/usr/bin/bash -i"), "bash");
+        assert_eq!(name_of("\"C:/bin/x.exe\" --algo"), "x.exe");
+        // Una ruta entrecomillada **con espacios** se parte por el espacio antes
+        // de que nadie mire las comillas, así que de `"C:/Program Files/x/y.exe"`
+        // sale `Program`. Queda escrito porque es lo que hace y no lo que
+        // parece: el precio es un nombre de panel feo —el comando se lanza
+        // entero e igual de bien—, así que se documenta en vez de arreglarse a
+        // ciegas. Si algún día se toca, este test dirá que ha cambiado.
+        assert_eq!(name_of("\"C:/Program Files/x/y.exe\""), "Program");
+        assert_eq!(
+            name_of("   "),
+            "agent",
+            "un comando vacío tiene que llamarse algo"
+        );
+        assert_eq!(name_of(""), "agent");
+    }
+
+    /// Una ruta que no existe se avisa, pero solo al abrir sesión: la de un
+    /// panel la hereda de la suya, que por definición ya existe. Y una ruta
+    /// vacía no es una carpeta nueva, es no haber escrito nada.
+    #[test]
+    fn se_avisa_de_un_directorio_que_no_existe() {
+        let mut f = form_de(Kind::Session);
+        f.cwd = "C:/esto/no/existe/en/ningun/sitio".to_owned();
+        assert!(missing_dir(&f));
+
+        f.cwd = ".".to_owned();
+        assert!(!missing_dir(&f));
+
+        f.cwd = "   ".to_owned();
+        assert!(!missing_dir(&f), "una ruta vacía no es una carpeta por crear");
+
+        f.kind = Kind::Pane;
+        f.cwd = "C:/esto/no/existe".to_owned();
+        assert!(!missing_dir(&f), "un panel no puede desviarse de su sesión");
+    }
+
+    /// Cerrado no dibuja ni contesta: el atajo puede llegar en cualquier frame.
+    #[test]
+    fn cerrado_no_dibuja_nada() {
+        let mut v = Ventana::nueva();
+        let mut f = Form::new(".".to_owned());
+        assert!(pintar(&mut v, &mut f, false).is_none());
+    }
+
+    /// Esc cierra el cuadro, y lo hace desde cualquier paso.
+    #[test]
+    fn esc_cierra_el_formulario() {
+        let mut v = Ventana::nueva();
+        let mut f = form_de(Kind::Session);
+        pintar(&mut v, &mut f, false);
+
+        v.tecla(egui::Key::Escape, egui::Modifiers::NONE);
+        assert!(matches!(
+            pintar(&mut v, &mut f, false),
+            Some(Action::CancelSpawn)
+        ));
+    }
+
+    /// Enter avanza mientras queden pasos, y en el último lanza. Es lo que hace
+    /// que el formulario se pueda recorrer entero sin tocar el ratón.
+    #[test]
+    fn enter_avanza_y_en_el_ultimo_paso_lanza() {
+        let mut v = Ventana::nueva();
+        let mut f = form_de(Kind::Pane);
+        f.cmd = "cargo test".to_owned();
+        pintar(&mut v, &mut f, false);
+        assert_eq!(f.step, Step::What);
+
+        v.tecla(egui::Key::Enter, egui::Modifiers::NONE);
+        let accion = pintar(&mut v, &mut f, false);
+        assert!(accion.is_none(), "avanzar de paso no lanza nada");
+        assert_eq!(f.step, Step::Launch);
+
+        v.tecla(egui::Key::Enter, egui::Modifiers::NONE);
+        assert!(matches!(
+            pintar(&mut v, &mut f, false),
+            Some(Action::ConfirmSpawn)
+        ));
+    }
+
+    /// Con la sesión llena el cuadro se abre igual —para que el atajo nunca
+    /// parezca roto— pero no lanza: dice por qué no va a hacerlo.
+    #[test]
+    fn con_la_sesion_llena_se_abre_pero_no_lanza() {
+        let mut v = Ventana::nueva();
+        let mut f = form_de(Kind::Pane);
+        f.cmd = "cargo test".to_owned();
+        f.step = Step::Launch;
+        pintar(&mut v, &mut f, true);
+
+        v.tecla(egui::Key::Enter, egui::Modifiers::NONE);
+        assert!(
+            pintar(&mut v, &mut f, true).is_none(),
+            "lanzó un panel en una sesión que ya estaba llena"
+        );
+    }
+
+    /// Una sesión llena no bloquea el formulario de **otra** sesión: `full`
+    /// habla de la que estás mirando, y abrir una nueva no le añade paneles.
+    #[test]
+    fn la_sesion_llena_no_frena_abrir_otra_sesion() {
+        let mut v = Ventana::nueva();
+        let mut f = form_de(Kind::Session);
+        f.cwd = ".".to_owned();
+        f.cmd = "claude".to_owned();
+        f.step = Step::Launch;
+        pintar(&mut v, &mut f, true);
+
+        v.tecla(egui::Key::Enter, egui::Modifiers::NONE);
+        assert!(matches!(
+            pintar(&mut v, &mut f, true),
+            Some(Action::ConfirmSpawn)
+        ));
+    }
+
+    /// Los tres pasos se dibujan enteros, con repos y proyectos en la lista, y
+    /// en una ventana pequeña: el cuadro se ajusta a lo que hay en vez de
+    /// imponer su tamaño, y en una ventana estrecha antes se salía por abajo
+    /// llevándose LANZAR consigo.
+    #[test]
+    fn los_tres_pasos_se_dibujan_en_cualquier_ventana() {
+        let instalados = presets::Installed::detect();
+        let proyectos = crate::projects::Projects::load();
+        let repos = vec![
+            crate::repos::Repo {
+                dir: "C:/repos/flow".to_owned(),
+                name: "flow".to_owned(),
+                branch: Some("main".to_owned()),
+                touched: std::time::SystemTime::now(),
+            },
+            crate::repos::Repo {
+                dir: "C:/repos/otro".to_owned(),
+                name: "otro".to_owned(),
+                branch: None,
+                touched: std::time::SystemTime::now(),
+            },
+        ];
+
+        for (ancho, alto) in [(1480.0, 900.0), (760.0, 460.0), (400.0, 300.0)] {
+            let mut v = Ventana::de(ancho, alto);
+            for kind in [Kind::Session, Kind::Pane] {
+                let mut f = Form::new(".".to_owned());
+                f.show(kind, None);
+                f.cmd = "cargo test".to_owned();
+                for _ in 0..3 {
+                    v.frame_ctx(|ctx| show(ctx, &mut f, &instalados, &proyectos, &repos, false));
+                    f.advance();
+                }
+            }
+        }
+    }
+
+    /// Un error puesto se dibuja, y el aviso de carpeta por crear también.
+    #[test]
+    fn el_error_y_el_aviso_de_carpeta_nueva_se_dibujan() {
+        let mut v = Ventana::nueva();
+        let mut f = form_de(Kind::Session);
+        f.error = Some("no se pudo lanzar".to_owned());
+        f.cwd = "C:/una/carpeta/que/no/existe".to_owned();
+        pintar(&mut v, &mut f, false);
+        f.advance();
+        pintar(&mut v, &mut f, false);
+    }
+}
+
+#[cfg(test)]
+mod tests_a_raton {
+    use super::*;
+    use crate::testkit::Ventana;
+
+    /// Recorre el formulario a ratón, pinchando por toda su superficie, y
+    /// comprueba que se llega al final: los botones de avanzar, volver y
+    /// cancelar están ahí y hacen lo suyo.
+    ///
+    /// Se pincha a barrido y no en coordenadas escritas a mano porque el cuadro
+    /// se ajusta a la ventana —se encoge, se centra y le crecen filas con los
+    /// agentes detectados—, así que un punto fijo sería un test que se rompe al
+    /// instalar `codex`.
+    #[test]
+    fn el_formulario_se_recorre_entero_a_raton() {
+        let instalados = presets::Installed::detect();
+        let proyectos = crate::projects::Projects::load();
+        let repos: Vec<crate::repos::Repo> = Vec::new();
+
+        let mut v = Ventana::nueva();
+        let mut f = Form::new(".".to_owned());
+        f.show(Kind::Session, None);
+        f.cmd = "cargo test".to_owned();
+
+        let caja = v.rect();
+        let mut cancelado = false;
+        for fila in 0..40 {
+            for col in 0..20 {
+                let p = egui::pos2(
+                    caja.width() * (col as f32 + 0.5) / 20.0,
+                    caja.height() * (fila as f32 + 0.5) / 40.0,
+                );
+                v.clic(p);
+                let accion = v.frame_ctx(|ctx| {
+                    show(ctx, &mut f, &instalados, &proyectos, &repos, false)
+                });
+                match accion {
+                    Some(Action::CancelSpawn) => cancelado = true,
+                    Some(Action::ConfirmSpawn) => {}
+                    _ => {}
+                }
+            }
+        }
+        assert!(cancelado, "no se encontró por dónde cerrar el formulario");
+        assert!(
+            f.step == Step::Launch || f.step == Step::What || f.step == Step::Where,
+            "el formulario acabó en un paso que no existe"
+        );
+    }
+
+    /// Lo mismo con la sesión llena y con un panel: son los dos avisos que el
+    /// cuadro tiene que saber dar sin dejar de dibujarse.
+    #[test]
+    fn el_formulario_de_un_panel_lleno_tambien_se_recorre() {
+        let instalados = presets::Installed::detect();
+        let proyectos = crate::projects::Projects::load();
+        let repos: Vec<crate::repos::Repo> = Vec::new();
+
+        let mut v = Ventana::de(760.0, 460.0);
+        let mut f = Form::new(".".to_owned());
+        f.show(Kind::Pane, None);
+
+        let caja = v.rect();
+        for fila in 0..24 {
+            for col in 0..12 {
+                let p = egui::pos2(
+                    caja.width() * (col as f32 + 0.5) / 12.0,
+                    caja.height() * (fila as f32 + 0.5) / 24.0,
+                );
+                v.clic(p);
+                v.frame_ctx(|ctx| show(ctx, &mut f, &instalados, &proyectos, &repos, true));
+            }
+        }
+    }
+}

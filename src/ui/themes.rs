@@ -289,3 +289,132 @@ fn row(ui: &mut Ui, i: usize, selected: bool) -> bool {
     });
     resp.clicked()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::Ventana;
+
+    /// Elegir tema es mirarlo puesto: no hay diferencia entre lo señalado y lo
+    /// aplicado, y esa es la idea. Un tema se juzga con la terminal llena de
+    /// texto, no en una miniatura.
+    #[test]
+    fn moverse_por_la_lista_aplica_el_tema_de_verdad() {
+        let antes = theme::active();
+        let mut p = Picker::default();
+        p.show();
+
+        p.pick(2);
+        assert_eq!(p.selected(), 2);
+        assert_eq!(theme::active(), 2, "señalar un tema no lo aplicó");
+
+        theme::set_active(antes);
+    }
+
+    /// Se recuerda desde dónde se abrió, para poder deshacer: probar no cuesta
+    /// nada porque Esc deja las cosas como estaban.
+    #[test]
+    fn cancelar_devuelve_al_que_habia() {
+        let antes = theme::active();
+        theme::set_active(1);
+
+        let mut p = Picker::default();
+        p.show();
+        assert_eq!(p.previous(), 1);
+        p.pick(3);
+        assert_eq!(theme::active(), 3);
+
+        theme::set_active(p.previous());
+        assert_eq!(theme::active(), 1);
+        theme::set_active(antes);
+    }
+
+    /// Un índice fuera de la lista no puede dejar la interfaz sin colores.
+    #[test]
+    fn un_indice_imposible_se_recorta_a_la_lista() {
+        let antes = theme::active();
+        let mut p = Picker::default();
+        p.show();
+        p.pick(9999);
+        assert_eq!(p.selected(), theme::themes().len() - 1);
+        theme::set_active(antes);
+    }
+
+    /// Las flechas dan la vuelta por los extremos: con cinco temas, bajar desde
+    /// el último para llegar al primero es más rápido que subir cuatro veces.
+    #[test]
+    fn la_lista_da_la_vuelta_por_los_extremos() {
+        let antes = theme::active();
+        let n = theme::themes().len();
+        let mut p = Picker::default();
+        p.show();
+
+        p.pick(0);
+        assert_eq!(p.step(-1), n - 1, "subir desde el primero no dio la vuelta");
+        p.pick(n - 1);
+        assert_eq!(p.step(1), 0, "bajar desde el último no dio la vuelta");
+        theme::set_active(antes);
+    }
+
+    #[test]
+    fn cerrado_no_dibuja_nada() {
+        let mut v = Ventana::nueva();
+        let p = Picker::default();
+        assert!(v.frame_ctx(|ctx| show(ctx, &p)).is_none());
+    }
+
+    /// El teclado del selector: Esc deshace, Enter se queda con lo que estés
+    /// probando y las flechas recorren la lista.
+    #[test]
+    fn el_teclado_recorre_confirma_y_cancela() {
+        let antes = theme::active();
+        let mut v = Ventana::nueva();
+        let mut p = Picker::default();
+        p.show();
+        p.pick(0);
+        v.frame_ctx(|ctx| show(ctx, &p));
+
+        v.tecla(egui::Key::ArrowDown, egui::Modifiers::NONE);
+        assert!(matches!(
+            v.frame_ctx(|ctx| show(ctx, &p)),
+            Some(Action::PickTheme(1))
+        ));
+
+        v.tecla(egui::Key::ArrowUp, egui::Modifiers::NONE);
+        let arriba = theme::themes().len() - 1;
+        assert!(matches!(
+            v.frame_ctx(|ctx| show(ctx, &p)),
+            Some(Action::PickTheme(i)) if i == arriba
+        ));
+
+        v.tecla(egui::Key::Enter, egui::Modifiers::NONE);
+        assert!(matches!(
+            v.frame_ctx(|ctx| show(ctx, &p)),
+            Some(Action::ConfirmThemes)
+        ));
+
+        v.tecla(egui::Key::Escape, egui::Modifiers::NONE);
+        assert!(matches!(
+            v.frame_ctx(|ctx| show(ctx, &p)),
+            Some(Action::CancelThemes)
+        ));
+        theme::set_active(antes);
+    }
+
+    /// Los cinco temas se dibujan con sus muestras, y en una ventana en la que
+    /// la lista no cabe entera: el alto de la lista se recorta a lo que haya.
+    #[test]
+    fn el_selector_se_dibuja_con_todos_los_temas() {
+        let antes = theme::active();
+        for (ancho, alto) in [(1480.0, 900.0), (760.0, 460.0), (320.0, 200.0)] {
+            let mut v = Ventana::de(ancho, alto);
+            let mut p = Picker::default();
+            p.show();
+            for i in 0..theme::themes().len() {
+                p.pick(i);
+                v.frame_ctx(|ctx| show(ctx, &p));
+            }
+        }
+        theme::set_active(antes);
+    }
+}

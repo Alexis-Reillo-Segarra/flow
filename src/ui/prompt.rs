@@ -113,3 +113,111 @@ pub fn show(ui: &mut Ui, agent: Option<&Agent>) -> Option<Action> {
 
     action
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::State;
+    use crate::testkit::{self, Ventana};
+
+    /// Sin sesiones, la tira dice qué hacer en vez de quedarse en blanco.
+    #[test]
+    fn sin_sesiones_dice_como_abrir_una() {
+        let mut v = Ventana::nueva();
+        assert!(v.frame(|ui| show(ui, None)).is_none());
+    }
+
+    /// Los tres botones de ratón mandan los bytes que no se teclean cómodo, y
+    /// `^C` es el más importante de la aplicación.
+    #[test]
+    fn los_botones_mandan_sus_bytes() {
+        let mut v = Ventana::nueva();
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+
+        // Un frame para que los botones tengan sitio, y a partir de ahí se
+        // pincha donde de verdad han caído.
+        v.calienta(|ui| {
+            show(ui, Some(&a));
+        });
+
+        // De derecha a izquierda: KILL, ESC y ^C. Se buscan por el borde
+        // derecho de la tira, que es donde los pone `Layout::right_to_left`.
+        let ancho = v.rect().width();
+        let y = v.rect().height() - HEIGHT / 2.0;
+        let mut vistos: Vec<Action> = Vec::new();
+        for x in (0..300).map(|k| ancho - 10.0 - k as f32) {
+            v.clic(egui::pos2(x, y));
+            if let Some(accion) = v.frame(|ui| show(ui, Some(&a))) {
+                if !vistos.iter().any(|s| formato(s) == formato(&accion)) {
+                    vistos.push(accion);
+                }
+            }
+        }
+        let nombres: Vec<String> = vistos.iter().map(formato).collect();
+        assert!(
+            nombres.contains(&"Kill".to_owned()),
+            "no se encontró el botón KILL: {nombres:?}"
+        );
+        assert!(
+            nombres.contains(&"SendRaw(3)".to_owned()),
+            "no se encontró el botón ^C: {nombres:?}"
+        );
+        assert!(
+            nombres.contains(&"SendRaw(27)".to_owned()),
+            "no se encontró el botón ESC: {nombres:?}"
+        );
+        a.kill();
+    }
+
+    fn formato(a: &Action) -> String {
+        match a {
+            Action::Kill(_) => "Kill".to_owned(),
+            Action::Restart(_) => "Restart".to_owned(),
+            Action::SendRaw(b) => format!("SendRaw({})", b[0]),
+            otro => format!("{otro:?}"),
+        }
+    }
+
+    /// Con el proceso terminado, KILL deja sitio a RESTART: no se mata lo que ya
+    /// está muerto.
+    #[test]
+    fn un_proceso_terminado_ofrece_reiniciarlo() {
+        let mut v = Ventana::nueva();
+        let a = testkit::agente_terminado(1, "eco", State::Exited(0));
+
+        v.calienta(|ui| {
+            show(ui, Some(&a));
+        });
+
+        let ancho = v.rect().width();
+        let y = v.rect().height() - HEIGHT / 2.0;
+        let mut visto = None;
+        for x in (0..300).map(|k| ancho - 10.0 - k as f32) {
+            v.clic(egui::pos2(x, y));
+            if let Some(accion) = v.frame(|ui| show(ui, Some(&a))) {
+                visto = Some(formato(&accion));
+                break;
+            }
+        }
+        assert_eq!(visto.as_deref(), Some("Restart"));
+    }
+
+    /// La tira se dibuja con un agente en cada estado. El texto de en medio no
+    /// es decoración: es la única forma de enterarse de que se escribe arriba y
+    /// no aquí, y de por qué ahora mismo no se puede escribir.
+    #[test]
+    fn la_tira_se_dibuja_en_cualquier_estado() {
+        let mut v = Ventana::nueva();
+        for estado in [
+            State::Working,
+            State::Blocked,
+            State::Idle,
+            State::Exited(0),
+            State::Exited(2),
+            State::Failed("no se pudo lanzar".to_owned()),
+        ] {
+            let a = testkit::agente_terminado(1, "panel", estado);
+            v.frame(|ui| show(ui, Some(&a)));
+        }
+    }
+}

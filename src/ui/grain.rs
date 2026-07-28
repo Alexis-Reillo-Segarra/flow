@@ -138,3 +138,36 @@ mod tests {
         assert!(max <= 20, "un grano de {max}/255 ya es ruido, no textura");
     }
 }
+
+#[cfg(test)]
+mod tests_en_pantalla {
+    use super::*;
+    use crate::testkit::Ventana;
+
+    /// El grano se pinta y su textura se genera una sola vez: se guarda en el
+    /// contexto, así que el segundo frame la encuentra hecha.
+    #[test]
+    fn el_grano_se_pinta_y_su_textura_se_reaprovecha() {
+        let mut v = Ventana::nueva();
+        let caja = v.rect();
+        v.frame(|ui| paint(ui, caja));
+        v.frame(|ui| paint(ui, caja));
+
+        let guardada = v
+            .ctx()
+            .data(|d| d.get_temp::<egui::TextureHandle>(Id::new("grain-tile")));
+        assert!(guardada.is_some(), "la textura del grano no se guardó");
+    }
+
+    /// Un rectángulo sin superficie no se pinta: al arrancar y mientras se
+    /// arrastra un borde, la ventana pasa por tamaños de cero.
+    #[test]
+    fn un_hueco_sin_superficie_no_se_pinta() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            paint(ui, Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 40.0)));
+            paint(ui, Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(40.0, 0.0)));
+            paint(ui, Rect::NOTHING);
+        });
+    }
+}

@@ -629,3 +629,271 @@ pub fn empty_state(ui: &mut Ui, title: &str, hint: &str) {
         theme::pal().text_faint,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::State;
+    use crate::testkit::Ventana;
+
+    /// Las diez marcas se dibujan y ninguna se sale de su hueco.
+    ///
+    /// Se dibujan con segmentos y rectángulos a propósito —nada de emoji ni de
+    /// fuentes de iconos— y eso significa que cada una es geometría escrita a
+    /// mano que nadie más comprueba. Lo que se prueba aquí no es que se vean
+    /// bonitas: es que ninguna revienta ni se pasa de su caja, que es lo que en
+    /// una fila de nueve botones hace que una marca invada la de al lado.
+    #[test]
+    fn las_diez_marcas_de_agente_se_dibujan() {
+        let marcas = [
+            Mark::Burst,
+            Mark::Ring,
+            Mark::Sparkle,
+            Mark::Brackets,
+            Mark::Chevron,
+            Mark::Square,
+            Mark::Triangle,
+            Mark::Diamond,
+            Mark::Bolt,
+            Mark::Dot,
+        ];
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            let painter = ui.painter().clone();
+            for mark in marcas {
+                let caja = Rect::from_min_size(pos2(100.0, 100.0), vec2(12.0, 12.0));
+                paint_agent(&painter, caja, mark, theme::pal().text_hi);
+            }
+        });
+    }
+
+    /// Un tamaño ridículo no rompe el dibujo. La rejilla se aprieta hasta que
+    /// una cabecera mide dos píxeles de alto, y ahí una raíz cuadrada negativa o
+    /// una división por cero se convierten en un `NaN` que egui propaga hasta
+    /// dejar la ventana en blanco.
+    #[test]
+    fn una_marca_diminuta_no_revienta() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            let painter = ui.painter().clone();
+            for lado in [0.0_f32, 0.5, 1.0, 3.0] {
+                let caja = Rect::from_min_size(pos2(10.0, 10.0), vec2(lado, lado));
+                paint_agent(&painter, caja, Mark::Burst, theme::pal().text_hi);
+                gradient_border(
+                    &painter,
+                    caja,
+                    6.0,
+                    1.0,
+                    theme::pal().accent,
+                    theme::pal().line,
+                );
+                panel_halo(&painter, caja, 6, theme::pal().accent);
+            }
+        });
+    }
+
+    /// El radio de un borde se recorta a la mitad del lado más corto. Sin eso,
+    /// un panel más bajo que su redondeo dibuja arcos que se cruzan.
+    #[test]
+    fn el_redondeo_no_puede_ser_mayor_que_el_panel() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            let painter = ui.painter().clone();
+            let plano = Rect::from_min_size(pos2(0.0, 0.0), vec2(80.0, 4.0));
+            gradient_border(&painter, plano, 40.0, 1.0, theme::pal().accent, theme::pal().line);
+        });
+    }
+
+    /// Los estados pasan por el dibujo de su marca, en dos instantes distintos:
+    /// `WORKING` late y `BLOCKED` parpadea, así que hay ramas que solo se
+    /// recorren en una de las dos mitades del ciclo.
+    #[test]
+    fn cada_estado_pinta_su_marca() {
+        let estados = [
+            State::Working,
+            State::Blocked,
+            State::Idle,
+            State::Exited(0),
+            State::Exited(1),
+            State::Failed("no se pudo".to_owned()),
+        ];
+        let mut v = Ventana::nueva();
+        for estado in estados {
+            v.frame(|ui| {
+                let painter = ui.painter().clone();
+                let ctx = ui.ctx().clone();
+                let caja = Rect::from_min_size(pos2(20.0, 20.0), vec2(6.0, 6.0));
+                paint_mark(&painter, &ctx, caja, &estado, 0.0, 1.0);
+                paint_mark(&painter, &ctx, caja, &estado, 0.6, 0.55);
+            });
+        }
+    }
+
+    /// Un botón se pulsa donde está, y no donde no está.
+    #[test]
+    fn un_boton_se_pulsa_donde_esta() {
+        let mut v = Ventana::nueva();
+        let caja = v.frame(|ui| button(ui, "KILL", theme::pal().red).rect);
+
+        v.clic(caja.center());
+        assert!(
+            v.frame(|ui| button(ui, "KILL", theme::pal().red).clicked()),
+            "el clic cayó dentro del botón y no lo pulsó"
+        );
+
+        v.clic(caja.center() + vec2(0.0, 200.0));
+        assert!(
+            !v.frame(|ui| button(ui, "KILL", theme::pal().red).clicked()),
+            "un clic lejos del botón lo pulsó igual"
+        );
+    }
+
+    /// La pastilla de una lista y el botón que hace algo son cosas distintas, y
+    /// la diferencia no es visual: a un lector de pantalla hay que contarle que
+    /// LAUNCH no está puesto ni deja de estarlo, y que este directorio sí.
+    #[test]
+    fn una_pastilla_puesta_no_pisa_a_la_de_al_lado() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            let puesta = chip(ui, "flow", true);
+            let suelta = chip(ui, "otro", false);
+            let boton = button(ui, "LAUNCH", theme::pal().accent_text);
+            assert_ne!(puesta.rect, suelta.rect, "dos pastillas se pisaron");
+            assert!(boton.rect.width() > 0.0);
+        });
+    }
+
+    /// El botón de un agente lleva su marca delante, y eso lo hace más ancho que
+    /// el mismo nombre sin marca. Es la razón de que exista: en una fila de
+    /// nueve nombres que miden lo mismo, la forma es lo que se encuentra sin
+    /// leer.
+    #[test]
+    fn el_boton_de_un_agente_hace_sitio_a_su_marca() {
+        let mut v = Ventana::nueva();
+        let (con, sin) = v.frame(|ui| {
+            let con = agent_button(ui, "claude", Mark::Burst, theme::pal().text_dim).rect;
+            let sin = button(ui, "claude", theme::pal().text_dim).rect;
+            (con.width(), sin.width())
+        });
+        assert!(
+            con > sin,
+            "el botón con marca ({con}) no es más ancho que el mismo sin ella ({sin})"
+        );
+    }
+
+    /// El velo de un modal se come el clic que iba al panel de debajo.
+    ///
+    /// No es cosmética: sin esto se le daba el foco a otra terminal por detrás
+    /// del formulario, y como el formulario de un panel hereda el directorio de
+    /// la sesión que estabas mirando, cambiarla a su espalda hacía que lo que
+    /// lanzabas naciera en otro sitio del que decía el cuadro.
+    #[test]
+    fn el_velo_se_come_el_clic_de_debajo() {
+        let mut v = Ventana::nueva();
+        let caja = v.frame(|ui| button(ui, "KILL", theme::pal().red).rect);
+
+        // El velo tiene que estar ya puesto en el frame de calentamiento: egui
+        // resuelve un clic contra lo que había dibujado el frame anterior, así
+        // que un velo que aparece a la vez que el clic no tapa nada. Es también
+        // lo que pasa de verdad —el modal lleva un frame abierto cuando llega
+        // el primer clic—, así que probarlo de otra forma sería probar una
+        // situación que no ocurre.
+        let velado = |ui: &mut Ui| {
+            let ctx = ui.ctx().clone();
+            veil(&ctx, "test-dim", 190);
+            button(ui, "KILL", theme::pal().red).clicked()
+        };
+        v.calienta(|ui| {
+            velado(ui);
+        });
+
+        v.clic(caja.center());
+        assert!(!v.frame(velado), "el clic atravesó el velo y llegó al botón");
+    }
+
+    /// La raya de pasos ocupa lo mismo en los tres pasos: si encogiera, el
+    /// cuadro entero daría un salto al avanzar.
+    #[test]
+    fn la_raya_de_pasos_mide_igual_en_todos_los_pasos() {
+        let mut v = Ventana::nueva();
+        let altos: Vec<f32> = (0..3)
+            .map(|paso| {
+                v.frame(|ui| {
+                    let antes = ui.cursor().top();
+                    step_line(ui, 3, paso);
+                    ui.cursor().top() - antes
+                })
+            })
+            .collect();
+        assert!(
+            altos.windows(2).all(|p| (p[0] - p[1]).abs() < f32::EPSILON),
+            "la raya de pasos cambia de alto entre pasos: {altos:?}"
+        );
+    }
+
+    /// Sin pasos no hay raya que dibujar, y pedirla no puede ser un pánico.
+    #[test]
+    fn una_raya_de_cero_pasos_no_revienta() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            step_line(ui, 0, 0);
+            hline(ui, theme::pal().line);
+        });
+    }
+
+    /// Un nombre que no cabe se recorta a una sola fila. Un panel puede llamarse
+    /// como una ruta entera sin un solo espacio donde cortar, así que se parte
+    /// por donde haga falta: si no, se dibujaría fuera de su hueco.
+    #[test]
+    fn un_nombre_largo_se_queda_en_una_fila() {
+        let mut v = Ventana::nueva();
+        let (filas, ancho) = v.frame(|ui| {
+            let g = fit(
+                ui,
+                "un-nombre-larguisimo-sin-un-solo-espacio-donde-cortar",
+                theme::mono(theme::MONO_SM),
+                theme::pal().text_hi,
+                60.0,
+            );
+            (g.rows.len(), g.rect.width())
+        });
+        assert_eq!(filas, 1, "el nombre se partió en varias filas");
+        assert!(
+            ancho <= 60.0,
+            "el nombre recortado mide {ancho}, y el hueco 60"
+        );
+    }
+
+    /// Un ancho negativo no puede llegarle a la maquetación: sale de restarle
+    /// márgenes a un hueco que puede haberse quedado en nada.
+    #[test]
+    fn un_hueco_de_cero_no_revienta_la_maquetacion() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            fit(
+                ui,
+                "algo",
+                theme::mono(theme::MONO_SM),
+                theme::pal().text_hi,
+                -10.0,
+            );
+        });
+    }
+
+    /// El aspa y el estado vacío se dibujan: son las dos cosas que se pintan a
+    /// mano fuera de un widget.
+    #[test]
+    fn el_aspa_y_el_estado_vacio_se_dibujan() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| {
+            let painter = ui.painter().clone();
+            draw_cross(
+                &painter,
+                pos2(50.0, 50.0),
+                4.0,
+                Stroke::new(1.0, theme::pal().text_dim),
+            );
+            empty_state(ui, "NO SESSIONS", "Ctrl-N para abrir la primera");
+        });
+    }
+}

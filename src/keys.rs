@@ -344,3 +344,114 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests_del_teclado_entero {
+    use super::*;
+
+    fn tecla_sola(key: Key, modes: Modes) -> Vec<u8> {
+        encode(
+            &[Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            modes,
+        )
+    }
+
+    fn con(key: Key, m: Modifiers) -> Vec<u8> {
+        encode(
+            &[Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: m,
+            }],
+            Modes::default(),
+        )
+    }
+
+    /// Los tres controles que no son letras y se usan a diario: el nulo, el
+    /// retroceso y el escape por `Ctrl-[`, que es como se manda ESC en un
+    /// teclado sin tecla de escape cómoda.
+    #[test]
+    fn los_controles_que_no_son_letras() {
+        assert_eq!(con(Key::Space, Modifiers::CTRL), vec![0x00]);
+        assert_eq!(con(Key::Backspace, Modifiers::CTRL), vec![0x08]);
+        assert_eq!(con(Key::OpenBracket, Modifiers::CTRL), vec![0x1b]);
+        // Y lo que con Ctrl no significa nada no manda nada.
+        assert!(con(Key::F5, Modifiers::CTRL).is_empty());
+    }
+
+    /// `Alt-letra` es un ESC delante, que es como el shell recibe `Alt-B` para
+    /// moverse por palabras. Con lo que no es una letra, nada.
+    #[test]
+    fn alt_mas_letra_lleva_un_escape_delante() {
+        assert_eq!(con(Key::B, Modifiers::ALT), vec![0x1b, b'b']);
+        assert!(con(Key::F5, Modifiers::ALT).is_empty());
+    }
+
+    /// Las teclas de edición y de navegación, una a una. Son las que hacen que
+    /// un panel se comporte como una terminal y no como una caja de salida.
+    #[test]
+    fn las_teclas_de_edicion_mandan_lo_que_espera_un_terminal() {
+        let n = Modes::default();
+        assert_eq!(tecla_sola(Key::Enter, n), vec![b'\r']);
+        assert_eq!(tecla_sola(Key::Tab, n), vec![b'\t']);
+        assert_eq!(tecla_sola(Key::Escape, n), vec![0x1b]);
+        // DEL y no BS: es lo que esperan `readline` y compañía. Con `\x08` el
+        // shell borra pero no repinta.
+        assert_eq!(tecla_sola(Key::Backspace, n), vec![0x7f]);
+        assert_eq!(tecla_sola(Key::Insert, n), b"\x1b[2~".to_vec());
+        assert_eq!(tecla_sola(Key::Delete, n), b"\x1b[3~".to_vec());
+        assert_eq!(tecla_sola(Key::PageUp, n), b"\x1b[5~".to_vec());
+        assert_eq!(tecla_sola(Key::PageDown, n), b"\x1b[6~".to_vec());
+        // Una tecla que no significa nada en un terminal no manda nada.
+        assert!(tecla_sola(Key::F5, n).is_empty());
+    }
+
+    /// Las cuatro flechas más `Home` y `End`, en los dos modos: `CSI` en modo
+    /// normal y `SS3` en modo aplicación. Mandar siempre `CSI` funciona en
+    /// muchas TUIs, pero no en las que leen la tecla por terminfo.
+    #[test]
+    fn las_seis_teclas_de_navegacion_cambian_con_el_modo() {
+        let normal = Modes::default();
+        let app = Modes {
+            app_cursor: true,
+            ..Modes::default()
+        };
+        for (key, letra) in [
+            (Key::ArrowUp, b'A'),
+            (Key::ArrowDown, b'B'),
+            (Key::ArrowRight, b'C'),
+            (Key::ArrowLeft, b'D'),
+            (Key::Home, b'H'),
+            (Key::End, b'F'),
+        ] {
+            assert_eq!(tecla_sola(key, normal), vec![0x1b, b'[', letra]);
+            assert_eq!(tecla_sola(key, app), vec![0x1b, b'O', letra]);
+        }
+    }
+
+    /// Lo que no es ni texto ni tecla ni pegado no manda nada: en un frame
+    /// llegan además movimientos de ratón, foco de ventana y ruedas.
+    #[test]
+    fn lo_que_no_es_teclado_no_manda_nada() {
+        let eventos = [
+            Event::PointerMoved(egui::pos2(10.0, 10.0)),
+            Event::WindowFocused(true),
+            Event::Key {
+                key: Key::A,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            },
+        ];
+        assert!(encode(&eventos, Modes::default()).is_empty());
+    }
+}
