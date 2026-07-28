@@ -903,7 +903,10 @@ mod tests {
         assert!(!missing_dir(&f));
 
         f.cwd = "   ".to_owned();
-        assert!(!missing_dir(&f), "una ruta vacía no es una carpeta por crear");
+        assert!(
+            !missing_dir(&f),
+            "una ruta vacía no es una carpeta por crear"
+        );
 
         f.kind = Kind::Pane;
         f.cwd = "C:/esto/no/existe".to_owned();
@@ -1072,9 +1075,8 @@ mod tests_a_raton {
                     caja.height() * (fila as f32 + 0.5) / 40.0,
                 );
                 v.clic(p);
-                let accion = v.frame_ctx(|ctx| {
-                    show(ctx, &mut f, &instalados, &proyectos, &repos, false)
-                });
+                let accion =
+                    v.frame_ctx(|ctx| show(ctx, &mut f, &instalados, &proyectos, &repos, false));
                 match accion {
                     Some(Action::CancelSpawn) => cancelado = true,
                     Some(Action::ConfirmSpawn) => {}

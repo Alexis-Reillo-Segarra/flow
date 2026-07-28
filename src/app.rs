@@ -207,6 +207,14 @@ impl Flow {
                     }
                 }
             }
+            Action::FollowEnd(id) => {
+                if let Some(s) = self.current_mut() {
+                    if let Some(i) = s.index_of(id) {
+                        s.panes[i].follow = true;
+                        s.panes[i].snap_to_end = true;
+                    }
+                }
+            }
             Action::Close(id) => {
                 let empty = self.current_mut().map(|s| s.close_pane(id));
                 if empty == Some(true) {
@@ -780,13 +788,19 @@ mod tests_del_estado {
     fn con_sesiones(n: usize) -> Flow {
         let mut f = flow();
         for i in 0..n {
-            f.open_session(format!("s{i}"), testkit::quieto().to_owned(), ".".to_owned());
+            f.open_session(
+                format!("s{i}"),
+                testkit::quieto().to_owned(),
+                ".".to_owned(),
+            );
         }
         f
     }
 
     fn ids_de_paneles(f: &Flow) -> Vec<u64> {
-        f.current().map(|s| s.panes.iter().map(|p| p.id).collect()).unwrap_or_default()
+        f.current()
+            .map(|s| s.panes.iter().map(|p| p.id).collect())
+            .unwrap_or_default()
     }
 
     /// Cada cosa que nace se lleva un número, y nunca el de otra: el id es lo
@@ -807,7 +821,11 @@ mod tests_del_estado {
     fn abrir_una_sesion_la_deja_puesta() {
         let f = con_sesiones(2);
         assert_eq!(f.sessions.len(), 2);
-        assert_eq!(f.current, Some(f.sessions[1].id), "no se quedó en la última");
+        assert_eq!(
+            f.current,
+            Some(f.sessions[1].id),
+            "no se quedó en la última"
+        );
         assert_eq!(f.current().unwrap().panes.len(), 1);
     }
 
@@ -823,7 +841,11 @@ mod tests_del_estado {
         assert_eq!(f.current, Some(b), "cerrar otra sesión me movió de sitio");
 
         f.apply(Action::CloseSession(b));
-        assert_eq!(f.current, Some(a), "cerrar la puesta no saltó a la que queda");
+        assert_eq!(
+            f.current,
+            Some(a),
+            "cerrar la puesta no saltó a la que queda"
+        );
 
         f.apply(Action::CloseSession(a));
         assert!(f.sessions.is_empty());
@@ -840,10 +862,17 @@ mod tests_del_estado {
         assert_eq!(paneles.len(), 2);
 
         f.apply(Action::Close(paneles[1]));
-        assert_eq!(f.sessions.len(), 1, "cerrar un panel de dos cerró la sesión");
+        assert_eq!(
+            f.sessions.len(),
+            1,
+            "cerrar un panel de dos cerró la sesión"
+        );
 
         f.apply(Action::Close(paneles[0]));
-        assert!(f.sessions.is_empty(), "el último panel no se llevó la sesión");
+        assert!(
+            f.sessions.is_empty(),
+            "el último panel no se llevó la sesión"
+        );
     }
 
     /// El foco se le da al panel que se pide, y solo si es de esta sesión: un
@@ -918,7 +947,10 @@ mod tests_del_estado {
         let nombre = f.sessions[0].panes[0].name.clone();
 
         f.apply(Action::Restart(id));
-        assert_eq!(f.sessions[0].panes[0].id, id, "el panel reiniciado cambió de id");
+        assert_eq!(
+            f.sessions[0].panes[0].id, id,
+            "el panel reiniciado cambió de id"
+        );
         assert_eq!(f.sessions[0].panes[0].name, nombre);
         assert_eq!(f.sessions[0].panes.len(), 1);
     }
@@ -1045,7 +1077,10 @@ mod tests_del_estado {
         f.form.show(spawn::Kind::Pane, None);
         f.form.cmd = testkit::quieto().to_owned();
         f.apply(Action::ConfirmSpawn);
-        assert_eq!(f.form.error.as_deref(), Some("no hay ninguna sesión abierta"));
+        assert_eq!(
+            f.form.error.as_deref(),
+            Some("no hay ninguna sesión abierta")
+        );
     }
 
     /// El buzón: un fichero, un panel. Salen en el orden en que se escribieron,
@@ -1063,7 +1098,11 @@ mod tests_del_estado {
 
         f.collect_requests();
 
-        assert_eq!(f.sessions[0].panes.len(), 3, "no salió un panel por fichero");
+        assert_eq!(
+            f.sessions[0].panes.len(),
+            3,
+            "no salió un panel por fichero"
+        );
         assert_eq!(f.sessions[0].panes[1].cmdline, "cmd /C echo primero");
         assert_eq!(f.sessions[0].panes[2].cmdline, "cmd /C echo segundo");
         assert_eq!(f.sessions[0].focused, foco, "el panel pedido robó el foco");
@@ -1292,7 +1331,10 @@ mod tests_del_estado {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        assert!(f.repos_done, "el barrido de repositorios no llegó a terminar");
+        assert!(
+            f.repos_done,
+            "el barrido de repositorios no llegó a terminar"
+        );
     }
 }
 
@@ -1328,9 +1370,17 @@ mod tests_del_frame {
         assert!(f.sessions.is_empty());
 
         // Con sesiones y varios paneles, hasta que la rejilla se asienta.
-        f.open_session("uno".to_owned(), testkit::quieto().to_owned(), ".".to_owned());
+        f.open_session(
+            "uno".to_owned(),
+            testkit::quieto().to_owned(),
+            ".".to_owned(),
+        );
         f.add_pane(0, "dos".to_owned(), testkit::quieto().to_owned(), false);
-        f.open_session("tres".to_owned(), testkit::quieto().to_owned(), ".".to_owned());
+        f.open_session(
+            "tres".to_owned(),
+            testkit::quieto().to_owned(),
+            ".".to_owned(),
+        );
         for _ in 0..30 {
             v.frame(|ui| f.dibujar(ui));
         }
@@ -1360,7 +1410,11 @@ mod tests_del_frame {
     fn los_modales_se_dibujan_encima_de_la_rejilla() {
         let mut v = Ventana::nueva();
         let mut f = flow();
-        f.open_session("uno".to_owned(), testkit::quieto().to_owned(), ".".to_owned());
+        f.open_session(
+            "uno".to_owned(),
+            testkit::quieto().to_owned(),
+            ".".to_owned(),
+        );
 
         f.form.show(spawn::Kind::Pane, None);
         for _ in 0..3 {
@@ -1383,7 +1437,11 @@ mod tests_del_frame {
     fn lo_tecleado_en_un_frame_llega_al_panel() {
         let mut v = Ventana::nueva();
         let mut f = flow();
-        f.open_session("uno".to_owned(), testkit::quieto().to_owned(), ".".to_owned());
+        f.open_session(
+            "uno".to_owned(),
+            testkit::quieto().to_owned(),
+            ".".to_owned(),
+        );
         v.frame(|ui| f.dibujar(ui));
 
         v.escribe("echo hola");
@@ -1399,7 +1457,11 @@ mod tests_del_frame {
         for (ancho, alto) in [(760.0, 460.0), (400.0, 300.0), (200.0, 150.0)] {
             let mut v = Ventana::de(ancho, alto);
             let mut f = flow();
-            f.open_session("uno".to_owned(), testkit::quieto().to_owned(), ".".to_owned());
+            f.open_session(
+                "uno".to_owned(),
+                testkit::quieto().to_owned(),
+                ".".to_owned(),
+            );
             f.add_pane(0, "dos".to_owned(), testkit::quieto().to_owned(), false);
             for _ in 0..5 {
                 v.frame(|ui| f.dibujar(ui));

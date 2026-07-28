@@ -165,8 +165,14 @@ mod tests_en_pantalla {
     fn un_hueco_sin_superficie_no_se_pinta() {
         let mut v = Ventana::nueva();
         v.frame(|ui| {
-            paint(ui, Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 40.0)));
-            paint(ui, Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(40.0, 0.0)));
+            paint(
+                ui,
+                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 40.0)),
+            );
+            paint(
+                ui,
+                Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(40.0, 0.0)),
+            );
             paint(ui, Rect::NOTHING);
         });
     }

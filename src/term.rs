@@ -983,9 +983,17 @@ mod tests_secuencias {
 
         // Y los desbordes, por los cuatro lados.
         feed(&mut t, b"\x1b[999C\x1b[999B");
-        assert_eq!(t.cursor(), (5, 19), "el cursor se salió por abajo o por la derecha");
+        assert_eq!(
+            t.cursor(),
+            (5, 19),
+            "el cursor se salió por abajo o por la derecha"
+        );
         feed(&mut t, b"\x1b[999A\x1b[999D");
-        assert_eq!(t.cursor(), (0, 0), "el cursor se salió por arriba o por la izquierda");
+        assert_eq!(
+            t.cursor(),
+            (0, 0),
+            "el cursor se salió por arriba o por la izquierda"
+        );
         feed(&mut t, b"\x1b[999;999H");
         assert_eq!(t.cursor(), (5, 19));
     }
@@ -1003,7 +1011,11 @@ mod tests_secuencias {
         assert_eq!(fila(&t, 0), "abc");
 
         feed(&mut t, b"\x1b[1;1Habcdefgh\x1b[1;4H\x1b[1K");
-        assert_eq!(fila(&t, 0), "    efgh", "EL 1 no borró del principio al cursor");
+        assert_eq!(
+            fila(&t, 0),
+            "    efgh",
+            "EL 1 no borró del principio al cursor"
+        );
 
         feed(&mut t, b"\x1b[2K");
         assert_eq!(fila(&t, 0), "");

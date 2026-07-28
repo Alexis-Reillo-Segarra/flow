@@ -96,7 +96,30 @@ pub struct Agent {
     /// lo pone y quién lo lee están los dos en `ui::output`: la posición dentro
     /// del scrollback la lleva el `ScrollArea` de egui, y esto es solo si hay
     /// que reengancharla al final o dejarla donde el usuario la dejó.
+    ///
+    /// Lo lee además `ui::tiles` para avisar en la cabecera de que estás
+    /// mirando el pasado.
+    ///
+    /// **Aquí no hay un contador de líneas nuevas**, y no por falta de ganas:
+    /// no hay ninguno que no mienta. Lo que el emulador sabe contar es
+    /// `total_lines`, que es scrollback más una rejilla de alto fijo, así que
+    /// hasta que la pantalla no se desborda no crece ni una unidad —y una TUI
+    /// que repinta en su sitio no la desborda nunca, por muchas pantallas que
+    /// dibuje—. Un «3» donde han pasado trescientas cosas es peor que no decir
+    /// ningún número: la flecha dice lo único que se puede saber de verdad, que
+    /// es que no estás mirando el final.
     pub follow: bool,
+
+    /// «Vuelve al final en el próximo frame», de una sola vez.
+    ///
+    /// Hace falta porque poner `follow` no basta, y esto no se ve mirando el
+    /// código: `stick_to_bottom` de egui solo pega la vista al final **si la
+    /// vista ya venía pegada**, y lleva su propia memoria de que el usuario
+    /// subió. Al volver a decirle que siga el final, esa memoria sigue diciendo
+    /// que no, así que la vista se queda donde estaba y el botón de la cabecera
+    /// no hace nada. Con esto se le manda una posición concreta —el fondo— una
+    /// vez, y a partir de ahí `follow` ya se sostiene solo.
+    pub snap_to_end: bool,
 
     term: Term,
     parser: Parser,
@@ -149,6 +172,8 @@ impl Agent {
                     state: State::Failed(format!("{err:#}")),
                     started,
                     follow: true,
+                    snap_to_end: false,
+
                     term: Term::new(cols as usize, rows as usize, SCROLLBACK),
                     parser: Parser::new(),
                     last_output: started,
@@ -262,6 +287,8 @@ impl Agent {
             state: State::Working,
             started: now,
             follow: true,
+            snap_to_end: false,
+
             term: Term::new(cols as usize, rows as usize, SCROLLBACK),
             parser: Parser::new(),
             last_output: now,

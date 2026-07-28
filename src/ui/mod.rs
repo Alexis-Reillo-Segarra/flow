@@ -36,6 +36,12 @@ pub enum Action {
     /// Da el foco al panel n-ésimo (contando desde 0) de la sesión actual.
     FocusIndex(usize),
     Kill(u64),
+    /// Vuelve a pegar la vista de un panel al final de su salida.
+    ///
+    /// Lo pide la marca de la cabecera que avisa de que estás mirando el pasado.
+    /// No hace falta tocar el scroll a mano: basta con volver a decirle que siga
+    /// el final y `ScrollArea` se encarga en el frame siguiente.
+    FollowEnd(u64),
     /// Cierra un panel. Si era el último, se lleva la sesión por delante.
     Close(u64),
     Restart(u64),

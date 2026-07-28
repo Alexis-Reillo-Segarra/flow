@@ -60,7 +60,12 @@ pub fn surface(ui: &mut Ui, agent: &mut Agent, focused: bool, settled: bool, tim
     ui.spacing_mut().item_spacing.y = 0.0;
     let total = agent.term().total_lines();
 
-    let out = egui::ScrollArea::vertical()
+    // El salto al final que pidió la cabecera. Se le da una posición concreta
+    // —más allá del fondo, que egui recorta al máximo— porque `stick_to_bottom`
+    // por sí solo no lo haría: ver `agent::snap_to_end`.
+    let salto = std::mem::take(&mut agent.snap_to_end).then_some(total as f32 * row_h);
+
+    let mut area = egui::ScrollArea::vertical()
         // Cada panel tiene su propio scroll y su propia posición dentro del
         // scrollback; sin distinguirlos, ocho terminales compartirían una.
         .id_salt(agent.id)
@@ -70,24 +75,31 @@ pub fn surface(ui: &mut Ui, agent: &mut Agent, focused: bool, settled: bool, tim
         // reparte: se lo come entero la fila de arriba, que aparecería cortada
         // por la mitad.
         .max_height(rows as f32 * row_h)
-        .stick_to_bottom(agent.follow)
-        .show_rows(ui, row_h, total, |ui, range| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for i in range {
-                let cursor = cursor_color
-                    .filter(|_| i == cursor_line)
-                    .map(|c| (cursor_col, c));
-                let job = match agent.term().line(i) {
-                    Some(cells) => line_job(cells, &font, cursor),
-                    None => LayoutJob::default(),
-                };
-                ui.add(
-                    egui::Label::new(job)
-                        .selectable(true)
-                        .wrap_mode(egui::TextWrapMode::Extend),
-                );
-            }
-        });
+        .stick_to_bottom(agent.follow);
+
+    // Solo cuando lo han pedido: puesto en todos los frames, esto clavaría la
+    // vista donde diga y no habría forma de moverla con la rueda.
+    if let Some(y) = salto {
+        area = area.vertical_scroll_offset(y);
+    }
+
+    let out = area.show_rows(ui, row_h, total, |ui, range| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for i in range {
+            let cursor = cursor_color
+                .filter(|_| i == cursor_line)
+                .map(|c| (cursor_col, c));
+            let job = match agent.term().line(i) {
+                Some(cells) => line_job(cells, &font, cursor),
+                None => LayoutJob::default(),
+            };
+            ui.add(
+                egui::Label::new(job)
+                    .selectable(true)
+                    .wrap_mode(egui::TextWrapMode::Extend),
+            );
+        }
+    });
 
     // Si el usuario sube por el scrollback, dejamos de seguir el final; en
     // cuanto vuelve abajo, se reengancha. Es lo que uno espera de una terminal,
@@ -231,7 +243,10 @@ mod tests {
         for _ in 0..3 {
             v.frame(|ui| surface(ui, &mut a, true, true, 0.0));
         }
-        assert!(a.follow, "la vista se despegó del final sin que nadie subiera");
+        assert!(
+            a.follow,
+            "la vista se despegó del final sin que nadie subiera"
+        );
     }
 
     /// El cursor parpadea en el panel con foco y no en los demás —ocho cursores

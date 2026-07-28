@@ -22,7 +22,10 @@ fn flow() -> Command {
 /// La versión sale por la salida estándar y el proceso termina bien.
 #[test]
 fn la_version_se_imprime_y_no_abre_ventana() {
-    let out = flow().arg("--version").output().expect("no se pudo ejecutar flow");
+    let out = flow()
+        .arg("--version")
+        .output()
+        .expect("no se pudo ejecutar flow");
     assert!(out.status.success(), "flow --version salió con error");
     let texto = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -44,7 +47,10 @@ fn la_ayuda_se_imprime_por_sus_tres_nombres() {
         let out = flow().arg(arg).output().expect("no se pudo ejecutar flow");
         assert!(out.status.success(), "flow {arg} salió con error");
         let texto = String::from_utf8_lossy(&out.stdout);
-        assert!(texto.contains("flow run"), "la ayuda de {arg} no habla de run");
+        assert!(
+            texto.contains("flow run"),
+            "la ayuda de {arg} no habla de run"
+        );
     }
 }
 
@@ -52,10 +58,16 @@ fn la_ayuda_se_imprime_por_sus_tres_nombres() {
 /// probable es no acordarse de cómo se escribe.
 #[test]
 fn run_sin_comando_avisa() {
-    let out = flow().arg("run").output().expect("no se pudo ejecutar flow");
+    let out = flow()
+        .arg("run")
+        .output()
+        .expect("no se pudo ejecutar flow");
     assert_eq!(out.status.code(), Some(2));
     let texto = String::from_utf8_lossy(&out.stderr);
-    assert!(texto.contains("falta el comando"), "no dijo qué falta: {texto}");
+    assert!(
+        texto.contains("falta el comando"),
+        "no dijo qué falta: {texto}"
+    );
 }
 
 /// Fuera de flow no hay sesión en la que abrir el panel. El mensaje dice qué es

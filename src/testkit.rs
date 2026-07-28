@@ -154,6 +154,20 @@ impl Ventana {
         });
     }
 
+    /// Mueve la rueda del ratón sobre un sitio. Positivo sube por el contenido,
+    /// que es lo que despega la vista del final de una terminal.
+    pub fn rueda(&mut self, pos: Pos2, delta: f32) {
+        self.eventos.push(Event::PointerMoved(pos));
+        self.eventos.push(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, delta),
+            // `Move` es lo que manda un ratón de rueda; las otras fases son de
+            // un panel táctil, que aquí no cambian nada.
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+    }
+
     /// Encola una tecla pulsada, con sus modificadores bajados.
     pub fn tecla(&mut self, key: Key, modifiers: Modifiers) {
         self.modificadores = modifiers;
@@ -255,7 +269,9 @@ pub fn sesion(id: u64, nombre: &str, paneles: Vec<Agent>) -> Session {
         id,
         nombre.to_owned(),
         ".".to_owned(),
-        std::env::temp_dir().join("flow-test-inbox").join(id.to_string()),
+        std::env::temp_dir()
+            .join("flow-test-inbox")
+            .join(id.to_string()),
         primero,
     );
     for p in paneles {

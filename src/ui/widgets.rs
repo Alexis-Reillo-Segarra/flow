@@ -609,6 +609,30 @@ pub fn fit(ui: &Ui, text: &str, font: FontId, color: Color32, max: f32) -> Arc<G
     ui.fonts_mut(|f| f.layout_job(job))
 }
 
+/// Una punta de flecha hacia abajo, con su asta.
+///
+/// Dibujada con tres segmentos y no con un glifo, por lo mismo que las marcas de
+/// agente: a 9 px de lado tiene que quedar nítida, y depender de que la fuente
+/// traiga `▼` es depender de algo que no controlamos. `half` es la mitad del
+/// lado de su caja.
+pub fn draw_arrow_down(painter: &egui::Painter, center: egui::Pos2, half: f32, stroke: Stroke) {
+    // Todo al píxel: un trazo de 1 px que caiga a caballo entre dos se dibuja
+    // gris en vez de nítido, y esto es lo más pequeño de la cabecera.
+    let c = pos2(center.x.round(), center.y.round());
+    let h = half.max(2.0).round();
+    // El asta, de arriba a la punta.
+    painter.line_segment([pos2(c.x, c.y - h), pos2(c.x, c.y + h)], stroke);
+    // Y las dos alas de la punta.
+    painter.line_segment(
+        [pos2(c.x - h * 0.7, c.y + h * 0.3), pos2(c.x, c.y + h)],
+        stroke,
+    );
+    painter.line_segment(
+        [pos2(c.x + h * 0.7, c.y + h * 0.3), pos2(c.x, c.y + h)],
+        stroke,
+    );
+}
+
 /// Mensaje centrado para estados vacíos.
 pub fn empty_state(ui: &mut Ui, title: &str, hint: &str) {
     let rect = ui.available_rect_before_wrap();
@@ -700,7 +724,14 @@ mod tests {
         v.frame(|ui| {
             let painter = ui.painter().clone();
             let plano = Rect::from_min_size(pos2(0.0, 0.0), vec2(80.0, 4.0));
-            gradient_border(&painter, plano, 40.0, 1.0, theme::pal().accent, theme::pal().line);
+            gradient_border(
+                &painter,
+                plano,
+                40.0,
+                1.0,
+                theme::pal().accent,
+                theme::pal().line,
+            );
         });
     }
 
@@ -808,7 +839,10 @@ mod tests {
         });
 
         v.clic(caja.center());
-        assert!(!v.frame(velado), "el clic atravesó el velo y llegó al botón");
+        assert!(
+            !v.frame(velado),
+            "el clic atravesó el velo y llegó al botón"
+        );
     }
 
     /// La raya de pasos ocupa lo mismo en los tres pasos: si encogiera, el

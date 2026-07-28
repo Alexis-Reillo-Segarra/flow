@@ -452,7 +452,10 @@ mod tests_del_fichero {
         let texto = std::fs::read_to_string(&p).unwrap();
         assert!(texto.contains("theme = nord"));
         assert!(texto.contains('#'), "la plantilla salió sin comentarios");
-        assert!(texto.contains("accent"), "la plantilla no nombra los colores");
+        assert!(
+            texto.contains("accent"),
+            "la plantilla no nombra los colores"
+        );
     }
 
     /// Cambiar de tema **conserva el resto del fichero**: ahí viven los temas
@@ -471,7 +474,10 @@ mod tests_del_fichero {
         assert!(texto.contains("theme = nord"));
         assert!(!texto.contains("theme = gruvbox"), "quedó el tema viejo");
         assert!(texto.contains("[theme mío]"), "se perdió el tema propio");
-        assert!(texto.contains("#d3869b"), "se perdió el color del tema propio");
+        assert!(
+            texto.contains("#d3869b"),
+            "se perdió el color del tema propio"
+        );
     }
 
     /// Un fichero que solo tiene temas propios y no dice cuál está puesto: la
@@ -492,7 +498,11 @@ mod tests_del_fichero {
     #[test]
     fn lo_escrito_se_lee_del_disco() {
         let p = fichero("para-leer");
-        std::fs::write(&p, "theme = nord\n\n[theme propio]\nbase = flow\nbg = #101014\n").unwrap();
+        std::fs::write(
+            &p,
+            "theme = nord\n\n[theme propio]\nbase = flow\nbg = #101014\n",
+        )
+        .unwrap();
 
         let cfg = load(&crate::theme::builtin());
         assert_eq!(cfg.theme.as_deref(), Some("nord"));

@@ -337,6 +337,45 @@ fn panel(
         }
         right -= 17.0;
     }
+
+    // Estás mirando el pasado.
+    //
+    // Si subes por el scrollback, el proceso sigue escribiendo y hasta ahora
+    // nada te lo decía: la vista se quedaba quieta y no había forma de
+    // distinguir «este panel está callado» de «este panel lleva cien líneas
+    // escribiendo por debajo de donde miras». La flecha lo dice y además lo
+    // arregla —es el botón que vuelve al final—, que es lo que evita tener que
+    // arrastrar la barra hasta abajo a mano.
+    //
+    // Se dibuja **siempre** que haga falta y no solo con el ratón encima, al
+    // revés que el aspa de cerrar: el aspa es una acción que vas a buscar, y
+    // esto es información que tiene que encontrarte a ti.
+    //
+    // Va sola, sin número de líneas nuevas. El motivo está en `agent::follow`:
+    // no hay ninguna cuenta que no mienta, y la flecha dice lo único que se
+    // puede saber de verdad.
+    if !agent.follow {
+        const DICHO: &str = "Volver al final de la salida";
+        let zona = Rect::from_center_size(pos2(right - 6.0, cy), vec2(15.0, HEADER_H));
+        let resp = ui.interact(zona, Id::new(("pane-follow", agent.id)), Sense::click());
+        let color = if resp.hovered() {
+            theme::pal().accent_text
+        } else {
+            theme::pal().text_dim
+        };
+        widgets::draw_arrow_down(&painter, zona.center(), 4.0, Stroke::new(1.0, ink(color)));
+        right -= 19.0;
+
+        // Sin esto no existe para un lector de pantalla, que es justo a quien
+        // más falta le hace: no puede ver dónde está la barra de scroll.
+        let pulsado = resp.clicked();
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, DICHO));
+        resp.on_hover_text(DICHO);
+        if pulsado {
+            action = Some(Action::FollowEnd(agent.id));
+        }
+    }
+
     let uptime = agent.uptime();
     right = right_text(
         &painter,
@@ -812,5 +851,141 @@ mod tests_en_pantalla {
             testkit::quieto(),
         )];
         asienta(&mut v, &mut a, &mut t, Some(1));
+    }
+}
+
+#[cfg(test)]
+mod tests_del_aviso_de_scroll {
+    use super::*;
+    use crate::testkit::{self, Ventana};
+
+    const MARCA: fn(u64) -> egui::Id = |id| egui::Id::new(("pane-follow", id));
+
+    /// Un panel con más salida de la que cabe, ya asentado y pegado al final.
+    fn panel_con_mucha_salida(v: &mut Ventana, t: &mut Tiling) -> Vec<Agent> {
+        let mut a = vec![testkit::agente(1, "panel", testkit::quieto())];
+        for i in 0..400 {
+            a[0].feed_para_test(format!("linea {i}\r\n").as_bytes());
+        }
+        for _ in 0..40 {
+            v.frame(|ui| show(ui, &mut a, Some(1), t, 0.0));
+        }
+        a
+    }
+
+    /// La marca solo está cuando hace falta: pegado al final no hay nada que
+    /// avisar, y una flecha permanente sería ruido en las ocho cabeceras.
+    #[test]
+    fn la_marca_no_esta_mientras_sigas_el_final() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = panel_con_mucha_salida(&mut v, &mut t);
+
+        assert!(a[0].follow, "la vista no arrancó pegada al final");
+        assert!(
+            v.ctx().read_response(MARCA(1)).is_none(),
+            "se dibujó el aviso con la vista pegada al final"
+        );
+        a[0].kill();
+    }
+
+    /// Subir por el scrollback despega la vista, y entonces la marca aparece
+    /// **sin tener el ratón encima de la cabecera**: el aspa de cerrar es una
+    /// acción que vas a buscar, y esto es información que tiene que encontrarte
+    /// a ti.
+    #[test]
+    fn subir_por_el_scrollback_saca_el_aviso() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = panel_con_mucha_salida(&mut v, &mut t);
+
+        // La rueda, en el cuerpo del panel y hacia arriba.
+        let cuerpo = t.rects[0].1.center();
+        for _ in 0..6 {
+            v.rueda(cuerpo, 120.0);
+            v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        }
+        assert!(!a[0].follow, "subir con la rueda no despegó la vista");
+
+        // Y ahora el puntero se va lejos de la cabecera: la marca se queda.
+        for _ in 0..3 {
+            v.puntero(egui::pos2(2.0, 2.0));
+            v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        }
+        assert!(
+            v.ctx().read_response(MARCA(1)).is_some(),
+            "no se avisó de que la vista está mirando el pasado"
+        );
+        a[0].kill();
+    }
+
+    /// Y la marca es el botón: pulsarla pide volver al final, y volver al final
+    /// la hace desaparecer. Es lo que evita tener que arrastrar la barra de
+    /// scroll hasta abajo a mano.
+    #[test]
+    fn pulsar_la_marca_devuelve_la_vista_al_final() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = panel_con_mucha_salida(&mut v, &mut t);
+
+        let cuerpo = t.rects[0].1.center();
+        for _ in 0..6 {
+            v.rueda(cuerpo, 120.0);
+            v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        }
+        assert!(!a[0].follow);
+
+        let marca = v
+            .ctx()
+            .read_response(MARCA(1))
+            .expect("no se dibujó el aviso")
+            .rect;
+        v.clic(marca.center());
+        let accion = v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        assert!(
+            matches!(accion, Some(Action::FollowEnd(1))),
+            "pulsar el aviso no pidió volver al final: {accion:?}"
+        );
+
+        // Eso es lo que hace `Flow::apply`; aquí se hace a mano para poder
+        // comprobar lo que viene después, que es lo que de verdad importa: que
+        // la vista vuelve abajo y el aviso se va solo.
+        a[0].follow = true;
+        a[0].snap_to_end = true;
+        for _ in 0..5 {
+            v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        }
+        assert!(a[0].follow, "la vista no se quedó pegada al final");
+        assert!(
+            v.ctx().read_response(MARCA(1)).is_none(),
+            "el aviso siguió puesto después de volver al final"
+        );
+        a[0].kill();
+    }
+
+    /// La marca se enciende al pasar por encima, que es la rama de color que no
+    /// se recorre sola.
+    #[test]
+    fn la_marca_se_enciende_al_pasar_por_encima() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = panel_con_mucha_salida(&mut v, &mut t);
+
+        let cuerpo = t.rects[0].1.center();
+        for _ in 0..6 {
+            v.rueda(cuerpo, 120.0);
+            v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        }
+        let marca = v
+            .ctx()
+            .read_response(MARCA(1))
+            .expect("no se dibujó el aviso")
+            .rect;
+
+        for _ in 0..3 {
+            v.puntero(marca.center());
+            v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        }
+        a[0].kill();
     }
 }

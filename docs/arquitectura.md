@@ -113,13 +113,21 @@ cuestan, y cada una dice dónde tocaría.
 > que se quedaban a 27° de tono— y ya no hace falta: el tema de casa es
 > monocromo, así que el acento no tiene tono con el que confundirse con nada. La
 > deuda se pagó quitando el color, no moviéndolo.
-
-**1. Avisar de que un panel está desenganchado del final.** `agent.follow` ya
-existe y se calcula cada frame en `ui/output.rs`, pero no se enseña: si subes
-por el scrollback, el proceso sigue escribiendo y nada te dice que estás mirando
-el pasado. Bastaría una marca en la cabecera del panel —una flecha abajo, o el
-número de líneas nuevas— que además sirva de botón para volver al final. Es la
-mejora con mejor relación valor/coste de la lista.
+>
+> Y había otra —avisar de que un panel está desenganchado del final— que **ya
+> está hecha**: si subes por el scrollback, en la cabecera aparece una flecha
+> abajo que además es el botón que te devuelve al final. Va sin número de líneas
+> nuevas, y eso fue una decisión, no un olvido: ver `agent::follow`.
+>
+> Y una tercera —selección de texto en el panel— que **se descarta**. La idea
+> era la regla de cualquier terminal: `Ctrl-C` copia si hay algo seleccionado e
+> interrumpe si no. El problema es lo que cuesta aquí: la salida se dibuja fila a
+> fila desde la rejilla del emulador con render virtualizado, así que una
+> selección tiene que vivir en coordenadas de celda —no de texto—, sobrevivir al
+> scroll, al reparto de la rejilla, al redimensionado que reescribe la rejilla
+> entera y al alt-screen. Y encima le disputaría `Ctrl-C` al proceso, que es la
+> tecla más importante de esta aplicación. Se queda fuera: para copiar lo que
+> escribió un agente, la salida sigue estando en su terminal de origen.
 
 **2. Animar el cierre de un panel.** Abrir desliza y crece; cerrar desaparece de
 golpe y los demás se reordenan. Cerrar el ciclo pide que `Tiling` conserve el
@@ -141,14 +149,7 @@ sigue viéndolos. Lo correcto sería leer esa preferencia y degradar a estático
 de la rejilla saltando directo a su sitio. egui no lo expone, así que habría que
 consultarlo al sistema.
 
-**5. Selección de texto en el panel.** Hoy no se puede copiar lo que un proceso
-escribió: no hay selección con el ratón, y `Ctrl-C` se manda al proceso porque no
-hay nada seleccionado que copiar. Es lo que hacen todos los terminales —copia si
-hay selección, interrumpe si no—, así que el día que exista la selección, esa es
-la regla y el sitio de decidirlo es `keys::encode`, que ya recibe `Event::Copy`
-por separado.
-
-**6. Decir que una sesión que no estás mirando ha escrito.** El subrayado de la
+**5. Decir que una sesión que no estás mirando ha escrito.** El subrayado de la
 pastilla resume el *estado*, no la *novedad*: una sesión que pasó a `IDLE`
 después de soltar cien líneas se ve igual que una que lleva parada media hora.
 Un punto junto al número, que se apague al visitarla, cubriría el hueco.

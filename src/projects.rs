@@ -210,7 +210,10 @@ mod tests_del_fichero {
         p.touch("C:/dos");
 
         let escrito = std::fs::read_to_string(&fichero).expect("no se escribió la lista");
-        assert_eq!(escrito.lines().collect::<Vec<_>>(), vec!["C:/dos", "C:/uno"]);
+        assert_eq!(
+            escrito.lines().collect::<Vec<_>>(),
+            vec!["C:/dos", "C:/uno"]
+        );
     }
 
     /// Una ruta vacía no es un proyecto: no se guarda ni desordena la lista.
