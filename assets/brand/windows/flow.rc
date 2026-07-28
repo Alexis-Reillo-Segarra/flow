@@ -1,0 +1,41 @@
+// Recursos del ejecutable de Windows: el icono que ve el Explorador y la ficha
+// de "Propiedades" del fichero.
+//
+// Esto no lo pinta flow. El icono de la ventana y el de la barra de tareas los
+// dibuja `src/logo.rs` en tiempo de ejecucion; el que se compila aqui es el del
+// fichero .exe suelto, que Windows lee sin abrirlo. Son los dos sitios donde
+// aparece la marca y hacen falta los dos.
+//
+// Se compila a `flow.res` y ese .res va versionado, para que construir flow no
+// dependa de tener el SDK de Windows. Ver el README de esta carpeta.
+//
+// Todo el texto es ASCII a proposito: el .rc se compila sin declarar pagina de
+// codigos y un acento se convertiria en basura en las Propiedades del fichero.
+
+1 ICON "..\\flow.ico"
+
+1 VERSIONINFO
+FILEVERSION 0, 1, 0, 0
+PRODUCTVERSION 0, 1, 0, 0
+FILEOS 0x4L         // VOS__WINDOWS32
+FILETYPE 0x1L       // VFT_APP
+{
+    BLOCK "StringFileInfo"
+    {
+        BLOCK "040A04B0"   // espanol (Espana), Unicode
+        {
+            VALUE "CompanyName",      "Alexis Reillo Segarra"
+            VALUE "FileDescription",  "flow - orquestador de agentes de CLI sobre PTYs reales"
+            VALUE "FileVersion",      "0.1.0"
+            VALUE "InternalName",     "flow"
+            VALUE "LegalCopyright",   "Licencia MIT"
+            VALUE "OriginalFilename", "flow.exe"
+            VALUE "ProductName",      "flow"
+            VALUE "ProductVersion",   "0.1.0"
+        }
+    }
+    BLOCK "VarFileInfo"
+    {
+        VALUE "Translation", 0x040A, 1200
+    }
+}

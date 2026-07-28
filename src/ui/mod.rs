@@ -39,9 +39,12 @@ pub enum Action {
     /// Cierra un panel. Si era el último, se lleva la sesión por delante.
     Close(u64),
     Restart(u64),
-    /// Texto que el usuario escribió para el panel con el foco (sin el retorno).
-    Send(String),
-    /// Bytes crudos: Ctrl-C, ESC y demás teclas de control.
+    /// Bytes para el panel con el foco, tal cual.
+    ///
+    /// Lo que se teclea **no** pasa por aquí: va directo del teclado al PTY en
+    /// `Flow::type_into_pane`, sin dar la vuelta por una acción, porque no hay
+    /// nada que decidir al final del frame y el eco tiene que ser inmediato.
+    /// Esto es para los botones de la tira de abajo, `^C` y `ESC`.
     SendRaw(Vec<u8>),
     OpenSpawn(spawn::Kind),
     CancelSpawn,

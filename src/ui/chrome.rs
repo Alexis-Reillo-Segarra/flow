@@ -141,14 +141,28 @@ pub fn titlebar(ui: &mut Ui, current: Option<&Session>) -> Option<Action> {
 /// La marca de flow en la barra de título.
 ///
 /// Se rasteriza al número exacto de píxeles físicos que va a ocupar y se sube
-/// con filtrado `NEAREST`: el trazo del hexágono es de 1 o 2 px, y escalar una
-/// imagen para llegar a ese tamaño lo convertiría en un degradado gris. La
-/// textura se cachea por tamaño, así que solo se rasteriza al arrancar y cuando
-/// cambia la escala del sistema.
-fn mark(ui: &mut Ui, size_pt: f32) {
+/// con filtrado `NEAREST`: a 16 pt las barras miden dos o tres píxeles y el
+/// hueco entre ellas uno, así que escalar una imagen para llegar a ese tamaño
+/// convertiría la marca en una mancha gris. La textura se cachea por tamaño y
+/// por color, así que solo se rasteriza al arrancar, al cambiar la escala del
+/// sistema y al cambiar de tema.
+///
+/// La marca **no es cuadrada**, y el ancho lo dice `logo::caja()` en vez de
+/// suponerse: la marca cambia de proporciones con el tamaño —a 16 px engorda la
+/// barra y abre la separación— así que darle una caja cuadrada, o la de otro
+/// tamaño, le corta la última barra.
+fn mark(ui: &mut Ui, alto_pt: f32) {
     let ctx = ui.ctx().clone();
-    let size_px = (size_pt * ctx.pixels_per_point()).round().max(8.0) as usize;
-    let id = Id::new(("logo", size_px));
+    let ppp = ctx.pixels_per_point();
+    // La cara clara del acento y no `accent`, que es la de trazo. La marca ya
+    // trae dentro su propia caída —la barra más apagada se queda en un tercio de
+    // la tinta— así que arrancarla en la cara oscura la apagaría dos veces y las
+    // dos últimas barras desaparecerían sobre el negro. Es además el sitio que
+    // le da el sistema de color: el blanco puro es de la marca (ver `theme`).
+    let ink = theme::pal().accent_text;
+    let alto_px = (alto_pt * ppp).round().max(8.0) as usize;
+    let (ancho_px, alto_px) = crate::logo::caja(alto_px);
+    let id = Id::new(("logo", alto_px, ink.to_array()));
 
     let texture = match ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
         Some(t) => t,
@@ -156,8 +170,8 @@ fn mark(ui: &mut Ui, size_pt: f32) {
             // Fuera de `data_mut`: cargar una textura vuelve a tomar el
             // cerrojo del contexto y se quedaría bloqueado.
             let t = ctx.load_texture(
-                format!("flow-mark-{size_px}"),
-                crate::logo::color_image(size_px, theme::pal().accent),
+                format!("flow-mark-{alto_px}"),
+                crate::logo::color_image(ancho_px, alto_px, ink),
                 egui::TextureOptions::NEAREST,
             );
             ctx.data_mut(|d| d.insert_temp(id, t.clone()));
@@ -165,13 +179,20 @@ fn mark(ui: &mut Ui, size_pt: f32) {
         }
     };
 
-    let (rect, _) = ui.allocate_exact_size(vec2(size_pt, size_pt), Sense::hover());
+    // La caja en puntos sale de la de píxeles y no al revés: así el sitio
+    // reservado es exactamente el de la textura y la marca no se reescala.
+    let caja_pt = vec2(ancho_px as f32 / ppp, alto_px as f32 / ppp);
+    let (rect, resp) = ui.allocate_exact_size(caja_pt, Sense::hover());
     ui.painter().image(
         texture.id(),
         rect,
         Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
         Color32::WHITE,
     );
+    // La barra de título no dice "flow" en ningún sitio: lo dice la marca, y una
+    // imagen dibujada a mano no existe para un lector de pantalla si no se le
+    // declara. Es lo único que nombra la aplicación.
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, "flow"));
 }
 
 fn window_button(ui: &mut Ui, kind: Btn) -> Response {

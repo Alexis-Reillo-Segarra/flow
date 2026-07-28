@@ -135,6 +135,12 @@ pub struct Term {
     pub alt_active: bool,
     pub title: Option<String>,
 
+    /// Los dos modos que cambian lo que hay que mandarle **al** proceso cuando
+    /// el usuario escribe. No pintan nada: los guarda el emulador porque es
+    /// quien ve las secuencias que los encienden, y los lee `crate::keys` al
+    /// traducir una tecla. Ver `keys::Modes`.
+    modes: crate::keys::Modes,
+
     /// Bytes que hay que devolverle al proceso.
     ///
     /// Un terminal no solo pinta: también contesta. ConPTY, nada más arrancar,
@@ -165,8 +171,14 @@ impl Term {
             autowrap: true,
             alt_active: false,
             title: None,
+            modes: crate::keys::Modes::default(),
             replies: Vec::new(),
         }
+    }
+
+    /// Los modos que necesita saber quien traduzca una tecla a bytes.
+    pub fn modes(&self) -> crate::keys::Modes {
+        self.modes
     }
 
     /// Número total de líneas direccionables: scrollback + rejilla visible.
@@ -670,6 +682,11 @@ impl Perform for Term {
                     for p in params.iter() {
                         match p.first().copied().unwrap_or(0) {
                             7 => self.autowrap = set,
+                            // Los dos que no pintan nada: cambian lo que se le
+                            // manda al proceso al escribir, no lo que se ve.
+                            // Ver `keys::Modes`.
+                            1 => self.modes.app_cursor = set,
+                            2004 => self.modes.bracketed_paste = set,
                             1047 | 1049 | 47 => {
                                 if set {
                                     self.enter_alt_screen();
@@ -868,6 +885,23 @@ mod tests {
         assert_eq!(rojo_a, crate::theme::themes()[a].ansi[1]);
         assert_eq!(rojo_b, crate::theme::themes()[b].ansi[1]);
         assert_ne!(rojo_a, rojo_b, "los dos temas tenían el mismo rojo ANSI");
+    }
+
+    #[test]
+    fn los_modos_de_teclado_los_pone_el_proceso() {
+        // No cambian nada de lo que se ve, así que es fácil borrarlos sin
+        // enterarse: lo que rompen es lo que se escribe. Sin `app_cursor` las
+        // flechas dejan de moverse dentro de una TUI, y sin el pegado entre
+        // corchetes pegar tres líneas en un shell **ejecuta** las dos primeras.
+        let mut term = Term::new(20, 5, 100);
+        assert_eq!(term.modes(), crate::keys::Modes::default());
+
+        feed(&mut term, b"\x1b[?1h\x1b[?2004h");
+        assert!(term.modes().app_cursor);
+        assert!(term.modes().bracketed_paste);
+
+        feed(&mut term, b"\x1b[?1l\x1b[?2004l");
+        assert_eq!(term.modes(), crate::keys::Modes::default());
     }
 
     #[test]

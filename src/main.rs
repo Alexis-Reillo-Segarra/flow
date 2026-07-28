@@ -4,6 +4,7 @@
 mod agent;
 mod app;
 mod config;
+mod keys;
 mod logo;
 mod presets;
 mod projects;

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="flow">
+  <rect width="32" height="32" rx="7" fill="#090909"/>
+  <polygon points="8.901,8.5 12.401,8.5 8.099,23.5 4.599,23.5" fill="#eeeeee"/>
+  <polygon points="13.327,8.5 16.827,8.5 13.673,19.5 10.173,19.5" fill="#b1b1b1"/>
+  <polygon points="17.754,8.5 21.254,8.5 19.246,15.5 15.746,15.5" fill="#7a7a7a"/>
+  <polygon points="22.323,8.5 25.823,8.5 24.677,12.5 21.177,12.5" fill="#4d4d4d"/>
+</svg>

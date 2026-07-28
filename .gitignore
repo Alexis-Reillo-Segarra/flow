@@ -1,2 +1,6 @@
 /target
 .claude/settings.local.json
+
+# Exploraciones de logo: material de trabajo para elegir, no activos de marca.
+# Lo que se elija se formaliza en assets/brand/ y eso sí se versiona.
+/logos
