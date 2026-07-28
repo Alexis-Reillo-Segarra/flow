@@ -186,6 +186,62 @@ impl Ventana {
     }
 }
 
+/// El modificador de los atajos de flow, **tal y como lo manda el sistema**.
+///
+/// Las constantes de egui (`Modifiers::CTRL`) no valen para esto, y es una
+/// trampa fácil de pisar: son banderas sueltas, con `command: false`. Lo que
+/// llega de verdad de `egui_winit` trae `command` puesto **además** de la tecla
+/// física —`ctrl` en Windows y Linux, `mac_cmd` en macOS—, y es `command` lo
+/// que mira flow, porque en un Mac los atajos de aplicación son de Cmd.
+///
+/// Probar con `Modifiers::CTRL` es probar una combinación que no ocurre, y en
+/// macOS deja pasar los tests mientras la aplicación no responde a nada.
+pub fn atajo() -> Modifiers {
+    Modifiers {
+        alt: false,
+        ctrl: !cfg!(target_os = "macos"),
+        shift: false,
+        mac_cmd: cfg!(target_os = "macos"),
+        command: true,
+    }
+}
+
+/// El mismo, con Shift: `Ctrl-Shift-T` y `Ctrl-Shift-W`.
+pub fn atajo_shift() -> Modifiers {
+    Modifiers {
+        shift: true,
+        ..atajo()
+    }
+}
+
+/// La tecla **Ctrl física**, como la manda el sistema. No es lo mismo que
+/// [`atajo`] y en macOS es justo lo contrario: allí Ctrl no abre nada de flow,
+/// se lo queda entero el proceso, que es lo que espera cualquier terminal.
+pub fn control() -> Modifiers {
+    Modifiers {
+        alt: false,
+        ctrl: true,
+        shift: false,
+        mac_cmd: false,
+        // En Windows y Linux la tecla de los atajos **es** Ctrl, así que el
+        // sistema pone las dos banderas por la misma pulsación.
+        command: !cfg!(target_os = "macos"),
+    }
+}
+
+/// AltGr, que en Windows **es Ctrl+Alt** y es lo que se pulsa para escribir
+/// `@`, `#`, `|` o `\` en medio teclado europeo. No es un atajo de flow, y hay
+/// tests que lo comprueban por los dos lados.
+pub fn altgr() -> Modifiers {
+    Modifiers {
+        alt: true,
+        ctrl: true,
+        shift: false,
+        mac_cmd: false,
+        command: true,
+    }
+}
+
 /// Un proceso de mentira que no termina hasta que lo maten.
 ///
 /// Es un proceso **de verdad** —el `Agent` habla con un PTY real y no hay forma

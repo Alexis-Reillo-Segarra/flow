@@ -469,10 +469,16 @@ impl Flow {
             return None;
         }
         ctx.input(|i| {
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::N) {
+            // `command` y no `ctrl`, y nunca con Alt. Las dos cosas están
+            // razonadas en `keys::reservada`, que es la otra mitad de esta
+            // decisión: en macOS la tecla de los atajos es Cmd, y en Windows
+            // AltGr **es** Ctrl+Alt, así que sin el `!alt` teclear `@` en un
+            // teclado español salta a la sesión 2.
+            let flow = i.modifiers.command && !i.modifiers.alt;
+            if flow && i.key_pressed(egui::Key::N) {
                 return Some(Action::OpenSpawn(spawn::Kind::Session));
             }
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::T) {
+            if flow && i.key_pressed(egui::Key::T) {
                 // Con Shift, el tema. Va con Ctrl-T porque es lo mismo que se
                 // teclea para "abrir algo dentro de flow", y el tema es de la
                 // app entera: la tecla lo dice.
@@ -481,7 +487,7 @@ impl Flow {
                 }
                 return Some(Action::OpenSpawn(spawn::Kind::Pane));
             }
-            if i.modifiers.ctrl && i.key_pressed(egui::Key::W) {
+            if flow && i.key_pressed(egui::Key::W) {
                 // Con Shift se va la sesión entera. Es lo único que mata varios
                 // procesos de golpe, así que se pide con las dos manos: antes
                 // esto estaba en una X del tamaño de un sello en la esquina de
@@ -509,10 +515,10 @@ impl Flow {
                 // Ctrl-1..9 salta a la sesión n-ésima; Alt-1..8, al panel
                 // n-ésimo de esta. Los números son los que llevan escritos la
                 // pastilla y la cabecera del panel.
-                if i.modifiers.ctrl {
+                if flow {
                     return self.sessions.get(n).map(|s| Action::Switch(s.id));
                 }
-                if i.modifiers.alt {
+                if i.modifiers.alt && !i.modifiers.command {
                     return Some(Action::FocusIndex(n));
                 }
             }
@@ -520,7 +526,7 @@ impl Flow {
             // Alt y no Ctrl porque Ctrl-flecha ya significa "una palabra" dentro
             // del campo de texto, que es justo donde estás cuando quieres
             // cambiar de panel.
-            if i.modifiers.alt {
+            if i.modifiers.alt && !i.modifiers.command {
                 for (key, dir) in [
                     (egui::Key::ArrowLeft, Dir::Left),
                     (egui::Key::ArrowRight, Dir::Right),
@@ -1181,8 +1187,11 @@ mod tests_del_estado {
     #[test]
     fn los_atajos_hacen_lo_que_dicen() {
         use egui::{Key, Modifiers};
-        let ctrl = Modifiers::CTRL;
-        let ctrl_shift = Modifiers::CTRL | Modifiers::SHIFT;
+        // El modificador tal y como lo manda el sistema, que en macOS es Cmd:
+        // ver `testkit::atajo`. Con `Modifiers::CTRL` a pelo esto pasaría en
+        // Windows y dejaría la aplicación sin responder a nada en un Mac.
+        let ctrl = testkit::atajo();
+        let ctrl_shift = testkit::atajo_shift();
         let alt = Modifiers::ALT;
 
         let mut v = Ventana::nueva();
@@ -1242,6 +1251,17 @@ mod tests_del_estado {
 
         // Una tecla suelta no es un atajo: el teclado es del proceso.
         assert!(pulsa(&mut v, &mut f, Key::A, Modifiers::NONE).is_none());
+
+        // Y AltGr tampoco, que en Windows es Ctrl+Alt: es lo que se pulsa para
+        // escribir `@`, y sin excluirlo teclearle un correo a un agente lo
+        // mandaría a la sesión 2. Es la otra mitad de
+        // `keys::tests::altgr_es_para_escribir_y_no_un_atajo`.
+        for key in [Key::Num1, Key::Num2, Key::N, Key::W] {
+            assert!(
+                pulsa(&mut v, &mut f, key, testkit::altgr()).is_none(),
+                "AltGr-{key:?} disparó un atajo en vez de escribir un carácter"
+            );
+        }
     }
 
     /// Con un modal abierto no hay atajos: ahí manda el formulario, y `Ctrl-N`
@@ -1252,12 +1272,12 @@ mod tests_del_estado {
         let mut f = con_sesiones(1);
 
         f.form.show(spawn::Kind::Session, None);
-        v.tecla(egui::Key::N, egui::Modifiers::CTRL);
+        v.tecla(egui::Key::N, testkit::atajo());
         assert!(v.frame_ctx(|ctx| f.shortcuts(ctx)).is_none());
         f.form.close();
 
         f.picker.show();
-        v.tecla(egui::Key::N, egui::Modifiers::CTRL);
+        v.tecla(egui::Key::N, testkit::atajo());
         assert!(v.frame_ctx(|ctx| f.shortcuts(ctx)).is_none());
     }
 
@@ -1266,11 +1286,11 @@ mod tests_del_estado {
     fn sin_sesiones_los_atajos_no_se_inventan_nada() {
         let mut v = Ventana::nueva();
         let mut f = flow();
-        v.tecla(egui::Key::W, egui::Modifiers::CTRL);
+        v.tecla(egui::Key::W, testkit::atajo());
         assert!(v.frame_ctx(|ctx| f.shortcuts(ctx)).is_none());
-        v.tecla(egui::Key::W, egui::Modifiers::CTRL | egui::Modifiers::SHIFT);
+        v.tecla(egui::Key::W, testkit::atajo_shift());
         assert!(v.frame_ctx(|ctx| f.shortcuts(ctx)).is_none());
-        v.tecla(egui::Key::Num1, egui::Modifiers::CTRL);
+        v.tecla(egui::Key::Num1, testkit::atajo());
         assert!(v.frame_ctx(|ctx| f.shortcuts(ctx)).is_none());
     }
 
@@ -1397,7 +1417,7 @@ mod tests_del_frame {
         let mut f = flow();
         v.frame(|ui| f.dibujar(ui));
 
-        v.tecla(egui::Key::N, egui::Modifiers::CTRL);
+        v.tecla(egui::Key::N, testkit::atajo());
         v.frame(|ui| f.dibujar(ui));
         assert!(f.form.open, "Ctrl-N no abrió el formulario");
 

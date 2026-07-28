@@ -19,6 +19,11 @@
 //! eligieron esas tres porque son las de "ventana" en cualquier programa con
 //! pestañas, y porque lo que hacen —abrir y cerrar paneles— es lo que más se usa
 //! en flow. El resto del teclado es del proceso.
+//!
+//! **En macOS ese precio no se paga**, y no por gusto sino porque allí la tecla
+//! de los atajos de aplicación es Cmd: `Cmd-W` cierra el panel y el `Ctrl`
+//! entero se queda para quien esté corriendo, `Ctrl-W`, `Ctrl-N` y `Ctrl-T`
+//! incluidos. Cuál es la tecla en cada sistema lo decide [`reservada`].
 
 use egui::{Event, Key, Modifiers};
 
@@ -48,6 +53,15 @@ pub struct Modes {
 /// Es la lista de `app::Flow::shortcuts` mirada desde el otro lado. Si añades un
 /// atajo global, añádelo aquí: si no, hará lo suyo **y además** le llegará al
 /// proceso.
+///
+/// # Cuál es la tecla de flow en cada sistema
+///
+/// `Modifiers::command` y no `ctrl`: en Windows y en Linux son la misma tecla,
+/// y en macOS `command` es **Cmd**, que es donde un Mac espera los atajos de
+/// aplicación —`Cmd-W` cierra, `Cmd-N` abre— y donde no le estorban a nadie.
+/// El regalo es doble, porque en macOS el `Ctrl` entero se queda para el
+/// proceso: allí `Ctrl-N` y `Ctrl-W` siguen siendo del shell, que es lo que
+/// pide una terminal.
 pub fn reservada(key: Key, m: &Modifiers) -> bool {
     let digito = matches!(
         key,
@@ -66,11 +80,16 @@ pub fn reservada(key: Key, m: &Modifiers) -> bool {
         Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown
     );
 
-    if m.ctrl {
-        // Ctrl-N, Ctrl-T y Ctrl-W —con o sin Shift— y Ctrl-1..9.
+    // `!m.alt` no es un detalle: en Windows **AltGr es Ctrl+Alt**, y eso es lo
+    // que se pulsa para escribir `@`, `#`, `|` o `\` en medio mundo. Sin la
+    // condición, teclear `@` en un teclado español pulsa a la vez el atajo de
+    // «ir a la sesión 2». Un atajo de flow es Ctrl a secas, o Ctrl y Shift.
+    if m.command && !m.alt {
+        // Ctrl-N, Ctrl-T y Ctrl-W —con o sin Shift— y Ctrl-1..9. En macOS, con
+        // Cmd: ver la nota de arriba.
         return matches!(key, Key::N | Key::T | Key::W) || digito;
     }
-    if m.alt {
+    if m.alt && !m.command {
         // Alt-1..8 salta de panel y Alt-flechas mueve el foco por la rejilla.
         //
         // Se reservan los nueve dígitos y no ocho: caben ocho paneles, así que
@@ -96,20 +115,28 @@ pub fn encode(events: &[Event], modes: Modes) -> Vec<u8> {
             // sería reimplementar la distribución de teclado de cada país.
             Event::Text(t) => out.extend_from_slice(t.as_bytes()),
             Event::Paste(t) => pegar(&mut out, t, modes),
-            // `Ctrl-C` y `Ctrl-X` **no llegan como teclas**: egui los reconoce
-            // como copiar y cortar y emite esto en su lugar, sin la tecla
-            // (`egui_winit::is_copy_command`). Aquí eso no es una pérdida sino
-            // el camino bueno, porque en una terminal significan otra cosa:
-            // `Ctrl-C` interrumpe —es la tecla más importante que hay en esta
-            // aplicación, tanto que tiene botón propio abajo— y `Ctrl-X` es de
-            // quien esté corriendo, que en `nano` es salir.
+            // Copiar y cortar, que **no llegan como teclas**: egui los reconoce
+            // y emite esto en su lugar, sin la tecla
+            // (`egui_winit::is_copy_command`).
             //
-            // Y no se pierde ningún copiar: flow no tiene selección de texto que
-            // copiar. El día que la tenga, será ella la que decida —copia si hay
-            // algo seleccionado, interrumpe si no—, que es lo que hacen todos
-            // los terminales.
-            Event::Copy => out.push(0x03),
-            Event::Cut => out.push(0x18),
+            // Qué hay que hacer con ellos depende de qué tecla sea el atajo de
+            // copiar en cada sistema, y son dos casos distintos:
+            //
+            // - En **Windows y Linux** copiar es `Ctrl-C`, así que esto es el
+            //   único camino por el que puede llegar la tecla más importante de
+            //   la aplicación —la que interrumpe, tanto que tiene botón propio
+            //   abajo—. Sin traducirla aquí, `Ctrl-C` no llegaría al proceso, y
+            //   no lo cazaría ningún test que mire teclas porque no hay tecla.
+            //   Lo mismo con `Ctrl-X`, que en `nano` es salir.
+            // - En **macOS** copiar es `Cmd-C`, y `Ctrl-C` llega entero por el
+            //   camino normal de las teclas. Traducir esto sería interrumpir al
+            //   proceso cuando lo que has pedido es copiar: pulsas `Cmd-C` por
+            //   reflejo y te cargas lo que estaba haciendo el agente. Se ignora.
+            //
+            // Y no se pierde ningún copiar en ningún sistema: flow no tiene
+            // selección de texto que copiar (ver `docs/arquitectura.md`).
+            Event::Copy if !cfg!(target_os = "macos") => out.push(0x03),
+            Event::Cut if !cfg!(target_os = "macos") => out.push(0x18),
             Event::Key {
                 key,
                 pressed: true,
@@ -165,7 +192,11 @@ fn tecla(out: &mut Vec<u8>, key: Key, m: &Modifiers, modes: Modes) {
 
     // Alt + tecla es la convención de siempre: un ESC delante de lo que fuera.
     // Es como el shell recibe `Alt-B` o `Alt-.` para moverse por palabras.
-    if m.alt {
+    //
+    // `!m.ctrl` por lo mismo que en `reservada`: en Windows AltGr es Ctrl+Alt, y
+    // sin la condición un `AltGr-E` —el `€` de medio teclado europeo— mandaría
+    // un `ESC e` por delante del carácter que el sistema ya nos da como texto.
+    if m.alt && !m.ctrl {
         if let Some(n) = letra(key) {
             out.extend_from_slice(&[0x1b, b'a' + n]);
         }
@@ -243,20 +274,10 @@ mod tests {
 
     #[test]
     fn ctrl_c_es_el_byte_de_interrumpir() {
-        let ev = [pulsar(Key::C, Modifiers::CTRL)];
-        assert_eq!(bytes(&ev), b"\x03");
+        let ctrl = crate::testkit::control();
+        assert_eq!(bytes(&[pulsar(Key::C, ctrl)]), b"\x03");
         // Y Ctrl-D, que es el fin de fichero con el que se sale de un REPL.
-        assert_eq!(bytes(&[pulsar(Key::D, Modifiers::CTRL)]), b"\x04");
-    }
-
-    #[test]
-    fn copiar_y_cortar_son_interrumpir_y_su_control() {
-        // El camino de verdad de `Ctrl-C` en Windows: egui lo reconoce como el
-        // atajo de copiar y **no emite la tecla**, solo esto. Si no se tratara
-        // aquí, la tecla más importante de la aplicación no llegaría al proceso
-        // — y no se nota en ningún test que mire teclas, porque no hay ninguna.
-        assert_eq!(bytes(&[Event::Copy]), b"\x03");
-        assert_eq!(bytes(&[Event::Cut]), b"\x18");
+        assert_eq!(bytes(&[pulsar(Key::D, ctrl)]), b"\x04");
     }
 
     #[test]
@@ -301,14 +322,16 @@ mod tests {
 
     #[test]
     fn los_atajos_de_flow_no_le_llegan_al_proceso() {
+        use crate::testkit::{atajo, atajo_shift};
+
         // Estos hacen lo suyo en la app; si además salieran por el PTY, abrir un
         // panel escribiría basura en el que estabas mirando.
         for (key, m) in [
-            (Key::N, Modifiers::CTRL),
-            (Key::T, Modifiers::CTRL),
-            (Key::T, Modifiers::CTRL.plus(Modifiers::SHIFT)),
-            (Key::W, Modifiers::CTRL),
-            (Key::Num1, Modifiers::CTRL),
+            (Key::N, atajo()),
+            (Key::T, atajo()),
+            (Key::T, atajo_shift()),
+            (Key::W, atajo()),
+            (Key::Num1, atajo()),
             (Key::Num3, Modifiers::ALT),
             (Key::ArrowLeft, Modifiers::ALT),
         ] {
@@ -323,16 +346,69 @@ mod tests {
         }
     }
 
+    /// **AltGr no es un atajo de flow.** En Windows AltGr se reporta como
+    /// Ctrl+Alt, y es lo que se pulsa para escribir `@`, `#`, `|` o `\` en medio
+    /// teclado europeo: sin excluirlo, teclearle una dirección de correo a un
+    /// agente le da al `@` **y además** salta a la sesión 2.
+    ///
+    /// Y por el otro lado, tampoco puede meter un `ESC` por delante: el carácter
+    /// ya viene resuelto por el sistema como texto.
+    #[test]
+    fn altgr_es_para_escribir_y_no_un_atajo() {
+        let altgr = crate::testkit::altgr();
+        for key in [Key::Num1, Key::Num2, Key::Num3, Key::N, Key::W, Key::E] {
+            assert!(
+                !reservada(key, &altgr),
+                "{key:?} con AltGr se lo quedó flow en vez de dejarlo escribir"
+            );
+            assert!(
+                bytes(&[pulsar(key, altgr)]).is_empty(),
+                "{key:?} con AltGr mandó bytes por delante del carácter"
+            );
+        }
+    }
+
+    /// Copiar y cortar significan cosas distintas según cuál sea el atajo de
+    /// copiar en cada sistema, y las dos hay que acertarlas:
+    ///
+    /// - En Windows y Linux copiar es `Ctrl-C`, y este es el **único** camino
+    ///   por el que llega: si no se tradujera, la tecla de interrumpir no
+    ///   existiría en la aplicación.
+    /// - En macOS copiar es `Cmd-C` y `Ctrl-C` llega entero como tecla.
+    ///   Traducirlo sería interrumpir al agente cuando lo que has pedido es
+    ///   copiar.
+    #[test]
+    fn copiar_hace_lo_que_toca_en_cada_sistema() {
+        if cfg!(target_os = "macos") {
+            assert!(
+                bytes(&[Event::Copy]).is_empty(),
+                "Cmd-C interrumpió al proceso en vez de no hacer nada"
+            );
+            assert!(bytes(&[Event::Cut]).is_empty());
+            // Y la de interrumpir sigue llegando, por el camino de las teclas.
+            assert_eq!(bytes(&[pulsar(Key::C, crate::testkit::control())]), b"\x03");
+        } else {
+            assert_eq!(bytes(&[Event::Copy]), b"\x03");
+            assert_eq!(bytes(&[Event::Cut]), b"\x18");
+        }
+    }
+
     #[test]
     fn lo_demas_del_teclado_es_del_proceso() {
+        use crate::testkit::control;
+
         // El contrapunto del test de arriba: reservar de más deja al usuario sin
         // teclas dentro del proceso, y `Ctrl-A`, `Ctrl-E` o `Ctrl-R` se usan
         // constantemente en cualquier shell.
+        //
+        // `control()` y no `atajo()`: es la tecla Ctrl física, que en macOS es
+        // del proceso **entera** —`Ctrl-N` incluido— porque allí los atajos de
+        // flow son de Cmd.
         for (key, m) in [
-            (Key::A, Modifiers::CTRL),
-            (Key::E, Modifiers::CTRL),
-            (Key::R, Modifiers::CTRL),
-            (Key::Z, Modifiers::CTRL),
+            (Key::A, control()),
+            (Key::E, control()),
+            (Key::R, control()),
+            (Key::Z, control()),
             (Key::ArrowUp, Modifiers::NONE),
             (Key::Tab, Modifiers::NONE),
         ] {
