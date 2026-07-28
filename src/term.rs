@@ -181,6 +181,16 @@ impl Term {
         self.modes
     }
 
+    /// Columnas y filas de la rejilla.
+    ///
+    /// Solo lo usan los tests: dentro de la aplicación nadie le pregunta al
+    /// emulador de qué tamaño es, porque quien lo decide es quien lo dibuja y ya
+    /// lo sabe. Existe para poder comprobar que la vista se lo dice.
+    #[cfg(test)]
+    pub fn size(&self) -> (usize, usize) {
+        (self.cols, self.rows)
+    }
+
     /// Número total de líneas direccionables: scrollback + rejilla visible.
     pub fn total_lines(&self) -> usize {
         self.scrollback.len() + self.rows
@@ -915,5 +925,385 @@ mod tests {
         // Al volver, el historial previo sigue ahí y la TUI no dejó restos.
         assert_eq!(term.total_lines(), before);
         assert_eq!(text_of(&term, 0), "historial");
+    }
+}
+
+#[cfg(test)]
+mod tests_secuencias {
+    use super::*;
+
+    fn term() -> Term {
+        Term::new(20, 6, 100)
+    }
+
+    fn feed(t: &mut Term, bytes: &[u8]) {
+        let mut p = vte::Parser::new();
+        p.advance(t, bytes);
+    }
+
+    /// Lo que hay escrito en una fila, sin los blancos del final.
+    fn fila(t: &Term, i: usize) -> String {
+        t.line(i)
+            .map(|r| r.iter().map(|c| c.ch).collect::<String>())
+            .unwrap_or_default()
+            .trim_end()
+            .to_owned()
+    }
+
+    /// El cursor se mueve con las ocho formas de pedirlo, y ninguna se sale de
+    /// la rejilla: un `CUF` de mil columnas deja el cursor en la última, no
+    /// fuera del buffer.
+    #[test]
+    fn el_cursor_se_mueve_y_no_se_sale_de_la_rejilla() {
+        let mut t = term();
+
+        feed(&mut t, b"\x1b[3;5H");
+        assert_eq!(t.cursor(), (2, 4), "CUP no dejó el cursor donde se le dijo");
+
+        feed(&mut t, b"\x1b[A");
+        assert_eq!(t.cursor().0, 1);
+        feed(&mut t, b"\x1b[2B");
+        assert_eq!(t.cursor().0, 3);
+        feed(&mut t, b"\x1b[3C");
+        assert_eq!(t.cursor().1, 7);
+        feed(&mut t, b"\x1b[2D");
+        assert_eq!(t.cursor().1, 5);
+
+        // A la primera columna de n líneas abajo, y de n líneas arriba.
+        feed(&mut t, b"\x1b[E");
+        assert_eq!(t.cursor(), (4, 0));
+        feed(&mut t, b"\x1b[2F");
+        assert_eq!(t.cursor(), (2, 0));
+
+        // Columna y fila absolutas.
+        feed(&mut t, b"\x1b[7G");
+        assert_eq!(t.cursor().1, 6);
+        feed(&mut t, b"\x1b[2d");
+        assert_eq!(t.cursor().0, 1);
+
+        // Y los desbordes, por los cuatro lados.
+        feed(&mut t, b"\x1b[999C\x1b[999B");
+        assert_eq!(t.cursor(), (5, 19), "el cursor se salió por abajo o por la derecha");
+        feed(&mut t, b"\x1b[999A\x1b[999D");
+        assert_eq!(t.cursor(), (0, 0), "el cursor se salió por arriba o por la izquierda");
+        feed(&mut t, b"\x1b[999;999H");
+        assert_eq!(t.cursor(), (5, 19));
+    }
+
+    /// Borrar: la línea entera, hasta el final, hasta el principio, y la
+    /// pantalla en sus tres formas. Es lo que usa cualquier programa que
+    /// repinte una línea, empezando por el prompt de un shell.
+    #[test]
+    fn se_borra_por_partes_y_del_todo() {
+        let mut t = term();
+        feed(&mut t, b"abcdefgh");
+
+        // De la mitad al final.
+        feed(&mut t, b"\x1b[1;4H\x1b[K");
+        assert_eq!(fila(&t, 0), "abc");
+
+        feed(&mut t, b"\x1b[1;1Habcdefgh\x1b[1;4H\x1b[1K");
+        assert_eq!(fila(&t, 0), "    efgh", "EL 1 no borró del principio al cursor");
+
+        feed(&mut t, b"\x1b[2K");
+        assert_eq!(fila(&t, 0), "");
+
+        // La pantalla: de aquí abajo, de aquí arriba, y entera. Se vuelve al
+        // origen antes de escribir: `EL` deja el cursor donde estaba, no lo
+        // devuelve al principio de la línea.
+        feed(&mut t, b"\x1b[1;1Huno\r\ndos\r\ntres");
+        feed(&mut t, b"\x1b[2;1H\x1b[J");
+        assert_eq!(fila(&t, 0), "uno");
+        assert_eq!(fila(&t, 1), "");
+
+        feed(&mut t, b"\x1b[1;1Huno\r\ndos\r\ntres\x1b[2;2H\x1b[1J");
+        assert_eq!(fila(&t, 2), "tres", "ED 1 borró más abajo del cursor");
+
+        feed(&mut t, b"\x1b[2J");
+        for i in 0..6 {
+            assert_eq!(fila(&t, i), "", "ED 2 dejó la fila {i} escrita");
+        }
+    }
+
+    /// Insertar y borrar líneas y caracteres: es como una TUI mete una fila en
+    /// medio de una lista sin repintarla entera.
+    #[test]
+    fn se_insertan_y_se_borran_lineas_y_caracteres() {
+        let mut t = term();
+        feed(&mut t, b"uno\r\ndos\r\ntres");
+
+        feed(&mut t, b"\x1b[2;1H\x1b[L");
+        assert_eq!(fila(&t, 1), "", "IL no abrió hueco");
+        assert_eq!(fila(&t, 2), "dos", "IL no empujó lo que había hacia abajo");
+
+        feed(&mut t, b"\x1b[M");
+        assert_eq!(fila(&t, 1), "dos", "DL no se llevó la línea");
+
+        feed(&mut t, b"\x1b[1;1H\x1b[2P");
+        assert_eq!(fila(&t, 0), "o", "DCH no se comió los dos caracteres");
+
+        feed(&mut t, b"\x1b[1;1H\x1b[3@");
+        assert_eq!(fila(&t, 0), "   o", "ICH no abrió hueco");
+
+        feed(&mut t, b"\x1b[1;1H\x1b[2X");
+        assert_eq!(fila(&t, 0), "   o", "ECH borró de más");
+    }
+
+    /// La región de scroll: un `top`/`bottom` propio es lo que hace que una TUI
+    /// tenga cabecera fija y cuerpo que se desplaza.
+    #[test]
+    fn la_region_de_scroll_acota_el_desplazamiento() {
+        let mut t = term();
+        feed(&mut t, b"a\r\nb\r\nc\r\nd\r\ne\r\nf");
+
+        // Cabecera fija en la fila 1 y cuerpo de la 2 a la 4.
+        feed(&mut t, b"\x1b[2;4r");
+        feed(&mut t, b"\x1b[4;1H\n");
+        assert_eq!(fila(&t, 0), "a", "el scroll se llevó la cabecera");
+        assert_eq!(fila(&t, 1), "c", "la región no se desplazó");
+
+        // Subir y bajar la región a mano.
+        feed(&mut t, b"\x1b[2S");
+        feed(&mut t, b"\x1b[2T");
+
+        // Y quitarla: vuelve a ser toda la pantalla, cabecera incluida.
+        feed(&mut t, b"\x1b[r");
+        feed(&mut t, b"\x1b[2J\x1b[1;1HA\r\nB\r\nC\r\nD\r\nE\r\nF");
+        feed(&mut t, b"\x1b[6;1H\n");
+        assert_eq!(
+            fila(&t, t.total_lines() - 6),
+            "B",
+            "sin región, el scroll no arrastró la primera fila"
+        );
+    }
+
+    /// El índice inverso sube una línea y arrastra la pantalla al llegar
+    /// arriba; `NEL` baja una y va a la primera columna.
+    #[test]
+    fn el_indice_inverso_arrastra_al_llegar_arriba() {
+        let mut t = term();
+        feed(&mut t, b"uno\r\ndos");
+        feed(&mut t, b"\x1b[1;1H\x1bM");
+        assert_eq!(t.cursor().0, 0);
+        assert_eq!(fila(&t, 1), "uno", "RI no empujó la pantalla hacia abajo");
+
+        feed(&mut t, b"\x1b[1;5H\x1bE");
+        assert_eq!(t.cursor(), (1, 0));
+    }
+
+    /// Guardar y restaurar el cursor, por las dos vías que existen: la de ESC y
+    /// la de CSI. Las usan los programas que dibujan algo y vuelven a lo suyo.
+    #[test]
+    fn el_cursor_se_guarda_y_se_recupera() {
+        let mut t = term();
+        feed(&mut t, b"\x1b[3;7H\x1b7");
+        feed(&mut t, b"\x1b[1;1H");
+        feed(&mut t, b"\x1b8");
+        assert_eq!(t.cursor(), (2, 6));
+
+        feed(&mut t, b"\x1b[2;2H\x1b[s\x1b[6;9H\x1b[u");
+        assert_eq!(t.cursor(), (1, 1));
+    }
+
+    /// El tabulador salta de ocho en ocho y se para en el borde.
+    #[test]
+    fn el_tabulador_salta_de_ocho_en_ocho() {
+        let mut t = term();
+        feed(&mut t, b"\t");
+        assert_eq!(t.cursor().1, 8);
+        feed(&mut t, b"\t");
+        assert_eq!(t.cursor().1, 16);
+        feed(&mut t, b"\t");
+        assert_eq!(t.cursor().1, 19, "el tabulador se salió por la derecha");
+    }
+
+    /// El retroceso y el retorno de carro mueven sin borrar, y ninguno se pasa
+    /// del borde izquierdo.
+    #[test]
+    fn el_retroceso_no_se_pasa_del_borde() {
+        let mut t = term();
+        feed(&mut t, b"ab\x08\x08\x08\x08");
+        assert_eq!(t.cursor().1, 0);
+        assert_eq!(fila(&t, 0), "ab", "el retroceso borró lo que había");
+    }
+
+    /// El título lo pone el proceso con una secuencia de sistema operativo, y
+    /// llega entero aunque venga partido en trozos.
+    #[test]
+    fn el_proceso_puede_ponerle_titulo_a_su_panel() {
+        let mut t = term();
+        feed(&mut t, b"\x1b]0;mi comando\x07");
+        assert_eq!(t.title.as_deref(), Some("mi comando"));
+
+        feed(&mut t, b"\x1b]2;otro\x1b\\");
+        assert_eq!(t.title.as_deref(), Some("otro"));
+    }
+
+    /// Escribir en la última columna deja el cursor colgando y solo salta de
+    /// línea con el carácter siguiente. Sin eso, una línea de exactamente el
+    /// ancho de la terminal se lleva por delante una línea en blanco.
+    #[test]
+    fn una_linea_del_ancho_exacto_no_se_come_la_siguiente() {
+        let mut t = Term::new(4, 4, 100);
+        feed(&mut t, b"abcd");
+        assert_eq!(t.cursor().0, 0, "el cursor saltó de línea antes de tiempo");
+        feed(&mut t, b"e");
+        assert_eq!(t.cursor().0, 1);
+        assert_eq!(fila(&t, 0), "abcd");
+        assert_eq!(fila(&t, 1), "e");
+
+        // Y con el ajuste apagado, la última columna se sobrescribe.
+        let mut t = Term::new(4, 4, 100);
+        feed(&mut t, b"\x1b[?7l");
+        feed(&mut t, b"abcdef");
+        assert_eq!(t.cursor().0, 0);
+    }
+
+    /// Los atributos que no son color: negrita, tenue, cursiva, subrayado,
+    /// inverso, oculto y tachado, cada uno con su forma de apagarse.
+    #[test]
+    fn los_atributos_se_encienden_y_se_apagan_uno_a_uno() {
+        let mut t = term();
+        feed(&mut t, b"\x1b[1;2;3;4;7;8;9mx");
+        let pen = t.line(0).unwrap()[0].pen;
+        assert!(pen.bold && pen.dim && pen.underline && pen.inverse);
+
+        feed(&mut t, b"\x1b[22;23;24;27;28;29my");
+        let pen = t.line(0).unwrap()[1].pen;
+        assert!(!pen.bold && !pen.dim && !pen.underline && !pen.inverse);
+    }
+
+    /// Los 256 colores y el color verdadero, en tinta y en fondo, y el
+    /// «por defecto» que los devuelve al del tema.
+    #[test]
+    fn el_color_llega_por_sus_tres_caminos() {
+        let mut t = term();
+        feed(&mut t, b"\x1b[38;5;196m\x1b[48;5;21ma");
+        let pen = t.line(0).unwrap()[0].pen;
+        assert!(matches!(pen.fg, Some(Ink::Ansi(196))));
+        assert!(matches!(pen.bg, Some(Ink::Ansi(21))));
+
+        feed(&mut t, b"\x1b[38;2;10;20;30m\x1b[48;2;40;50;60mb");
+        let pen = t.line(0).unwrap()[1].pen;
+        assert!(matches!(pen.fg, Some(Ink::Rgb(_))));
+        assert!(matches!(pen.bg, Some(Ink::Rgb(_))));
+
+        // «Por defecto» es no pedir nada: la celda se pinta con el color del
+        // tema, que es lo que hace que cambiar de tema repinte lo ya escrito.
+        feed(&mut t, b"\x1b[39;49mc");
+        let pen = t.line(0).unwrap()[2].pen;
+        assert_eq!(pen.fg, None);
+        assert_eq!(pen.bg, None);
+
+        // Los brillantes, que van por otro tramo de números.
+        feed(&mut t, b"\x1b[93m\x1b[103md");
+        let pen = t.line(0).unwrap()[3].pen;
+        assert!(matches!(pen.fg, Some(Ink::Ansi(11))));
+        assert!(matches!(pen.bg, Some(Ink::Ansi(11))));
+    }
+
+    /// Una secuencia a medias o inventada no rompe nada: la salida de un
+    /// proceso llega a trozos y no siempre es correcta.
+    #[test]
+    fn lo_que_no_se_entiende_no_rompe_nada() {
+        let mut t = term();
+        feed(&mut t, b"\x1b[999999999;1H");
+        feed(&mut t, b"\x1b[?9999h\x1b[?9999l");
+        feed(&mut t, b"\x1b[Z\x1b[!p\x1b#8");
+        feed(&mut t, b"\x1b]999;lo que sea\x07");
+        feed(&mut t, b"\x1bZ\x1b(B\x1b)0");
+        // Y partida por la mitad entre dos llegadas.
+        let mut p = vte::Parser::new();
+        p.advance(&mut t, b"\x1b[3");
+        p.advance(&mut t, b";5Hx");
+        assert_eq!(fila(&t, 2), "    x");
+    }
+
+    /// El alt-screen se guarda y se recupera entero, y lo que se escriba
+    /// mientras esté puesto no acaba en el scrollback: si acabara, salir de
+    /// `vim` dejaría el historial lleno de pantallazos.
+    #[test]
+    fn el_alt_screen_va_y_vuelve_sin_ensuciar() {
+        let mut t = term();
+        feed(&mut t, b"lo de siempre");
+        feed(&mut t, b"\x1b[?1049h");
+        assert!(t.alt_active);
+        feed(&mut t, b"\x1b[2Juna pantalla entera");
+        feed(&mut t, b"\x1b[?1049l");
+        assert!(!t.alt_active);
+        assert_eq!(fila(&t, 0), "lo de siempre");
+
+        // Y la versión antigua, que es otra pareja de números.
+        feed(&mut t, b"\x1b[?47h");
+        assert!(t.alt_active);
+        feed(&mut t, b"\x1b[?47l");
+        assert!(!t.alt_active);
+    }
+
+    /// Encoger y agrandar un panel muchas veces no pierde lo escrito ni deja el
+    /// cursor fuera de la rejilla.
+    #[test]
+    fn redimensionar_muchas_veces_no_pierde_el_hilo() {
+        let mut t = term();
+        feed(&mut t, b"uno\r\ndos\r\ntres\r\ncuatro");
+        for (cols, rows) in [(5, 2), (40, 12), (1, 1), (20, 6)] {
+            t.resize(cols, rows);
+            // `cursor()` cuenta desde el principio del scrollback, no desde el
+            // borde de arriba de la rejilla: lo que se comprueba es que sigue
+            // apuntando a una línea que existe.
+            let (r, c) = t.cursor();
+            assert!(
+                r < t.total_lines(),
+                "el cursor apunta a la línea {r} y solo hay {}",
+                t.total_lines()
+            );
+            assert!(c < cols, "el cursor se quedó en la columna {c} de {cols}");
+        }
+        assert!(t.total_lines() > 0);
+    }
+
+    /// Redimensionar al mismo tamaño no toca nada: se llama en cada frame en el
+    /// que la rejilla está quieta.
+    #[test]
+    fn redimensionar_a_lo_mismo_no_hace_nada() {
+        let mut t = term();
+        feed(&mut t, b"algo");
+        let antes = t.total_lines();
+        t.resize(20, 6);
+        assert_eq!(t.total_lines(), antes);
+    }
+
+    /// El scrollback tiene tope: una suite larga escupe cientos de miles de
+    /// líneas y la memoria no es infinita.
+    #[test]
+    fn el_scrollback_tiene_tope() {
+        let mut t = Term::new(10, 3, 20);
+        for i in 0..200 {
+            feed(&mut t, format!("linea {i}\r\n").as_bytes());
+        }
+        assert!(
+            t.total_lines() <= 20 + 3,
+            "el scrollback creció hasta {} líneas",
+            t.total_lines()
+        );
+    }
+
+    /// La última línea con algo escrito es lo que mira la heurística de estado,
+    /// y se rinde tras un puñado de líneas en blanco: antes, una pantalla vacía
+    /// recorría las cinco mil del scrollback montando un `String` por cada una.
+    #[test]
+    fn la_ultima_linea_escrita_se_busca_sin_recorrerlo_todo() {
+        let mut t = Term::new(10, 3, 500);
+        feed(&mut t, b"pregunta?");
+        assert_eq!(t.last_nonempty_line().trim(), "pregunta?");
+
+        for _ in 0..200 {
+            feed(&mut t, b"\r\n");
+        }
+        assert_eq!(
+            t.last_nonempty_line(),
+            "",
+            "se puso a buscar hacia atrás sin fin"
+        );
     }
 }

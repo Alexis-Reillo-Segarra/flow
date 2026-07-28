@@ -277,6 +277,19 @@ impl Agent {
         &self.term
     }
 
+    /// Le mete al emulador una salida escrita a mano, como si la hubiera
+    /// mandado el proceso.
+    ///
+    /// Solo para tests, y por una razón concreta: lo que un shell escribe de
+    /// verdad depende del sistema, de su versión y de si el usuario tiene un
+    /// prompt de colores. Un test que necesite una fila con negrita, rojo y
+    /// vídeo inverso tiene que poder pedirla, no esperar a que aparezca.
+    #[cfg(test)]
+    pub fn feed_para_test(&mut self, bytes: &[u8]) {
+        self.parser.advance(&mut self.term, bytes);
+        self.prompt_cache = None;
+    }
+
     /// Cuánto lleva vivo, formateado corto (`12s`, `4m`, `2h`).
     pub fn uptime(&self) -> String {
         let s = self.started.elapsed().as_secs();
@@ -470,5 +483,144 @@ mod tests {
         assert_ne!(State::Working.color(), State::Blocked.color());
         assert_ne!(State::Exited(0).color(), State::Exited(1).color());
         assert_eq!(State::Exited(0).label(), "DONE");
+    }
+}
+
+#[cfg(test)]
+mod tests_del_proceso {
+    use super::*;
+    use crate::testkit;
+
+    /// Un comando que no se puede lanzar no tira la aplicación: el panel entra
+    /// en la lista igualmente y acaba muerto con su motivo, en vez de llevarse
+    /// por delante las otras siete terminales.
+    ///
+    /// Quién da el error depende del sistema, y por eso el test acepta las dos
+    /// formas: en Windows el comando se lo traga `cmd.exe`, que arranca sin
+    /// problema y sale con código de error, así que el panel termina en `EXIT`;
+    /// donde el lanzamiento falle de verdad, el panel nace ya en `FAILED` con lo
+    /// que dijo el sistema. Lo que se prueba es lo que importa en los dos casos:
+    /// que el panel existe, que no se queda vivo para siempre y que dice algo.
+    #[test]
+    fn un_comando_que_no_arranca_no_tira_la_aplicacion() {
+        let mut a = Agent::spawn(
+            1,
+            "imposible".to_owned(),
+            "esto-no-es-un-programa-de-verdad".to_owned(),
+            ".".to_owned(),
+            80,
+            24,
+            &[],
+        );
+        if let State::Failed(msg) = &a.state {
+            assert!(!msg.is_empty(), "falló sin decir por qué");
+            return;
+        }
+        testkit::espera_a_que_termine(&mut a);
+        match &a.state {
+            State::Exited(code) => assert_ne!(*code, 0, "un comando inventado salió bien"),
+            otro => panic!("el panel se quedó en {otro:?}"),
+        }
+    }
+
+    /// A un panel fallido se le puede escribir y redimensionar sin que pase
+    /// nada: la interfaz no sabe que está muerto hasta que lo mira.
+    #[test]
+    fn a_un_panel_fallido_se_le_puede_hablar_sin_consecuencias() {
+        let mut a = Agent::spawn(
+            1,
+            "imposible".to_owned(),
+            "loquesea".to_owned(),
+            "C:/no/existe".to_owned(),
+            80,
+            24,
+            &[],
+        );
+        a.send(b"hola\r");
+        a.resize(120, 40);
+        a.kill();
+        assert!(!a.pump(), "un panel muerto dijo que había cambiado algo");
+    }
+
+    /// Un proceso que termina pasa a `EXIT` con su código, y ahí se queda: ni
+    /// vuelve a `WORKING` ni la heurística lo revive.
+    #[test]
+    fn un_proceso_que_termina_se_queda_en_su_codigo() {
+        let mut a = testkit::agente(1, "eco", testkit::saluda());
+        testkit::espera_a_que_termine(&mut a);
+        assert_eq!(a.state, State::Exited(0));
+
+        a.pump();
+        assert_eq!(a.state, State::Exited(0), "el estado final se movió solo");
+    }
+
+    /// Un comando que sale con error se distingue de uno que sale bien: es lo
+    /// que separa `DONE` de `EXIT` en la cabecera.
+    #[test]
+    fn el_codigo_de_salida_llega_entero() {
+        let cmd = if cfg!(windows) {
+            "cmd /C exit 3"
+        } else {
+            "sh -c \"exit 3\""
+        };
+        let mut a = testkit::agente(1, "falla", cmd);
+        testkit::espera_a_que_termine(&mut a);
+        assert_eq!(a.state, State::Exited(3));
+    }
+
+    /// Matar un panel lo termina de verdad. Es el botón `KILL`, y es lo único
+    /// de la interfaz que mata un proceso a mano.
+    #[test]
+    fn matar_un_proceso_lo_termina() {
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        a.kill();
+        testkit::espera_a_que_termine(&mut a);
+        assert!(!a.state.is_running());
+    }
+
+    /// Redimensionar al mismo tamaño no toca el PTY: se llama en cada frame en
+    /// el que la rejilla está quieta, y un `SIGWINCH` por frame repinta una TUI
+    /// entera sesenta veces por segundo.
+    #[test]
+    fn redimensionar_a_lo_mismo_no_molesta_al_proceso() {
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        a.resize(80, 24);
+        assert_eq!(a.term().size(), (80, 24));
+        a.resize(100, 30);
+        assert_eq!(a.term().size(), (100, 30));
+        a.kill();
+    }
+
+    /// Cuánto lleva vivo, dicho corto. La cabecera tiene sitio para tres
+    /// caracteres, no para «3600 segundos».
+    #[test]
+    fn el_tiempo_de_vida_se_dice_corto() {
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        assert!(a.uptime().ends_with('s'));
+
+        a.started = std::time::Instant::now() - std::time::Duration::from_secs(300);
+        assert_eq!(a.uptime(), "5m");
+        a.started = std::time::Instant::now() - std::time::Duration::from_secs(7200);
+        assert_eq!(a.uptime(), "2h");
+        a.kill();
+    }
+
+    /// El emulador deja contestada la pregunta del proceso, y quien la manda al
+    /// PTY es `pump`, en la misma vuelta en la que llegó.
+    ///
+    /// Importa porque ConPTY se queda bloqueado nada más arrancar preguntando
+    /// dónde está el cursor: si la respuesta esperase al siguiente frame, no
+    /// llegaría ni un byte más de salida hasta entonces. Aquí se le mete la
+    /// pregunta a mano —sin pasar por el proceso— y por eso queda a la vista lo
+    /// que `pump` recoge.
+    #[test]
+    fn el_emulador_deja_contestada_la_pregunta_del_proceso() {
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        a.feed_para_test(b"\x1b[6n");
+        assert!(
+            !a.term().replies.is_empty(),
+            "el emulador no contestó a la consulta de cursor"
+        );
+        a.kill();
     }
 }

@@ -354,3 +354,172 @@ pub fn window_border(ctx: &Context) {
         StrokeKind::Inside,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::{self, Ventana};
+
+    /// La barra de título se dibuja con sesión y sin ella: sin sesión no hay
+    /// nombre que enseñar ni paneles que contar, y ese es el estado en el que
+    /// arranca la aplicación.
+    #[test]
+    fn la_barra_se_dibuja_con_sesion_y_sin_ella() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| titlebar(ui, None));
+
+        let s = testkit::sesion(
+            1,
+            "flow",
+            vec![testkit::agente(10, "panel", testkit::quieto())],
+        );
+        v.frame(|ui| titlebar(ui, Some(&s)));
+    }
+
+    /// El `+` de la barra añade un panel a la sesión que estás mirando, y solo
+    /// aparece cuando hay una: sin sesión no hay a qué añadirlo.
+    #[test]
+    fn el_mas_de_la_barra_anade_un_panel() {
+        let mut v = Ventana::nueva();
+        let s = testkit::sesion(
+            1,
+            "flow",
+            vec![testkit::agente(10, "panel", testkit::quieto())],
+        );
+        v.calienta(|ui| {
+            titlebar(ui, Some(&s));
+        });
+
+        // El `+` vive en el bloque de la derecha, a la izquierda de los tres
+        // botones de ventana: habla de la sesión que estás mirando y se pone al
+        // lado del contador de paneles, no junto a la marca.
+        let ancho = v.rect().width();
+        let mut anadio = false;
+        for k in 0..300 {
+            let x = ancho - 100.0 - k as f32;
+            v.clic(egui::pos2(x, TITLEBAR_H / 2.0));
+            if let Some(Action::OpenSpawn(spawn::Kind::Pane)) = v.frame(|ui| titlebar(ui, Some(&s)))
+            {
+                anadio = true;
+                break;
+            }
+        }
+        assert!(anadio, "no se encontró el + de la barra de título");
+    }
+
+    /// Los tres botones de ventana se dibujan y responden al ratón por encima:
+    /// el de cerrar se pinta distinto —blanco sobre rojo— y esa rama solo se
+    /// recorre con el puntero encima.
+    #[test]
+    fn los_botones_de_ventana_se_encienden_al_pasar_por_encima() {
+        let mut v = Ventana::nueva();
+        let ancho = v.rect().width();
+        v.calienta(|ui| {
+            titlebar(ui, None);
+        });
+        for k in 0..5 {
+            v.puntero(egui::pos2(ancho - 17.0 - 34.0 * k as f32, TITLEBAR_H / 2.0));
+            v.frame(|ui| titlebar(ui, None));
+        }
+    }
+
+    /// Los ocho tiradores de borde y el marco de la ventana se dibujan. Es el
+    /// precio de no tener barra de título del sistema: el redimensionado por los
+    /// bordes lo pone flow.
+    #[test]
+    fn los_bordes_de_redimensionado_y_el_marco_se_dibujan() {
+        let mut v = Ventana::nueva();
+        v.frame_ctx(|ctx| {
+            resize_handles(ctx);
+            window_border(ctx);
+        });
+
+        // Con el puntero encima de cada esquina y cada canto, que es donde
+        // cambia el cursor.
+        let r = v.rect();
+        for p in [
+            r.left_top(),
+            r.right_top(),
+            r.left_bottom(),
+            r.right_bottom(),
+            egui::pos2(r.center().x, r.top()),
+            egui::pos2(r.center().x, r.bottom()),
+            egui::pos2(r.left(), r.center().y),
+            egui::pos2(r.right(), r.center().y),
+        ] {
+            v.puntero(p);
+            v.frame_ctx(resize_handles);
+        }
+    }
+
+    /// La marca de la barra se rasteriza al tamaño que va a ocupar, y se cachea
+    /// por tamaño y por color: solo se vuelve a rasterizar al cambiar la escala
+    /// del sistema o el tema.
+    #[test]
+    fn la_marca_se_rasteriza_una_vez_por_tamano_y_color() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| mark(ui, 16.0));
+        v.frame(|ui| mark(ui, 16.0));
+        v.frame(|ui| mark(ui, 24.0));
+    }
+}
+
+#[cfg(test)]
+mod tests_a_raton {
+    use super::*;
+    use crate::testkit::{self, Ventana};
+
+    /// Los tres botones de ventana se pulsan. Lo que hacen es mandarle una orden
+    /// al sistema de ventanas —cerrar, maximizar, minimizar—, así que en un test
+    /// sin ventana lo que se comprueba es que se pueden pulsar y que no se
+    /// pisan entre ellos.
+    #[test]
+    fn los_botones_de_ventana_se_pueden_pulsar() {
+        let mut v = Ventana::nueva();
+        let ancho = v.rect().width();
+        v.calienta(|ui| {
+            titlebar(ui, None);
+        });
+        for k in 0..3 {
+            v.clic(egui::pos2(ancho - 17.0 - 34.0 * k as f32, TITLEBAR_H / 2.0));
+            v.frame(|ui| titlebar(ui, None));
+        }
+    }
+
+    /// La barra de título es el asa de la ventana: se arrastra desde ella, y un
+    /// doble clic maximiza. Es lo que sustituye a la barra del sistema, que aquí
+    /// no existe.
+    #[test]
+    fn la_barra_se_arrastra_y_el_doble_clic_maximiza() {
+        let mut v = Ventana::nueva();
+        v.calienta(|ui| {
+            titlebar(ui, None);
+        });
+
+        let medio = egui::pos2(v.rect().width() / 2.0, TITLEBAR_H / 2.0);
+        v.arrastra(medio, medio + egui::vec2(40.0, 20.0));
+        v.frame(|ui| titlebar(ui, None));
+
+        v.doble_clic(medio);
+        v.frame(|ui| titlebar(ui, None));
+    }
+
+    /// El contador de paneles avisa cuando la sesión está llena, y con el ratón
+    /// encima lo dice con palabras. Dice de paso que el límite existe, sin tener
+    /// que chocarse con él.
+    #[test]
+    fn el_contador_avisa_cuando_la_sesion_esta_llena() {
+        let mut v = Ventana::nueva();
+        let paneles: Vec<_> = (0..crate::session::MAX_PANES)
+            .map(|i| testkit::agente(i as u64 + 1, "p", testkit::quieto()))
+            .collect();
+        let llena = testkit::sesion(1, "llena", paneles);
+        assert!(llena.is_full());
+
+        let ancho = v.rect().width();
+        for k in 0..250 {
+            v.puntero(egui::pos2(ancho - 100.0 - k as f32, TITLEBAR_H / 2.0));
+            v.frame(|ui| titlebar(ui, Some(&llena)));
+        }
+    }
+}

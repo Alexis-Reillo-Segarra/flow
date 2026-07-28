@@ -57,6 +57,21 @@ impl Projects {
         &self.dirs
     }
 
+    /// Una lista que no toca el disco.
+    ///
+    /// Es lo que ya hace la de verdad cuando no hay dónde escribir —funciona en
+    /// memoria y se olvida al cerrar—, así que no es un modo inventado para los
+    /// tests: es el que sale cuando no hay `%APPDATA%`. Existe para que abrir
+    /// una sesión en un test no le meta un directorio de mentira en la lista de
+    /// proyectos a quien está ejecutando `cargo test`.
+    #[cfg(test)]
+    pub fn en_memoria() -> Self {
+        Self {
+            dirs: Vec::new(),
+            file: None,
+        }
+    }
+
     /// Sube `dir` a la cabeza de la lista y la guarda.
     ///
     /// Se llama al abrir una sesión, que es el momento en que un directorio
@@ -164,5 +179,62 @@ mod tests {
         assert_eq!(p.dirs().len(), MAX);
         // Y lo que se cae es lo más viejo, no lo más nuevo.
         assert_eq!(p.dirs()[0], format!("/p{}", MAX * 2 - 1));
+    }
+}
+
+#[cfg(test)]
+mod tests_del_fichero {
+    use super::*;
+
+    fn lista(nombre: &str) -> (Projects, PathBuf) {
+        let dir = std::env::temp_dir().join("flow-tests").join("proyectos");
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(nombre);
+        let _ = std::fs::remove_file(&p);
+        (
+            Projects {
+                dirs: Vec::new(),
+                file: Some(p.clone()),
+            },
+            p,
+        )
+    }
+
+    /// Abrir una sesión deja el directorio escrito, y lo escribe de verdad: la
+    /// lista de recientes es lo que evita volver a teclear la ruta la próxima
+    /// vez que se abre flow.
+    #[test]
+    fn lo_usado_se_guarda_en_el_disco() {
+        let (mut p, fichero) = lista("recientes");
+        p.touch("C:/uno");
+        p.touch("C:/dos");
+
+        let escrito = std::fs::read_to_string(&fichero).expect("no se escribió la lista");
+        assert_eq!(escrito.lines().collect::<Vec<_>>(), vec!["C:/dos", "C:/uno"]);
+    }
+
+    /// Una ruta vacía no es un proyecto: no se guarda ni desordena la lista.
+    #[test]
+    fn una_ruta_vacia_no_entra_en_la_lista() {
+        let (mut p, _) = lista("con-vacios");
+        p.touch("   ");
+        assert!(p.dirs().is_empty());
+    }
+
+    /// Sin sitio donde escribir, la lista funciona en memoria y se olvida al
+    /// cerrar: no poder guardar no puede impedir abrir una sesión.
+    #[test]
+    fn sin_donde_escribir_funciona_igual_pero_se_olvida() {
+        let mut p = Projects::en_memoria();
+        p.touch("C:/algo");
+        assert_eq!(p.dirs(), ["C:/algo"]);
+    }
+
+    /// El fichero de verdad vive donde manda la costumbre de cada sistema.
+    #[test]
+    fn el_fichero_de_verdad_esta_donde_toca() {
+        if let Some(p) = config_file() {
+            assert!(p.ends_with(std::path::Path::new("flow").join("projects")));
+        }
     }
 }

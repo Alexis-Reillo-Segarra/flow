@@ -237,3 +237,142 @@ fn tint(ctx: &Context, state: &State, time: f64) -> Color32 {
     }
     color
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::{self, Ventana};
+
+    fn sesiones(n: usize) -> Vec<Session> {
+        (0..n)
+            .map(|i| {
+                let id = i as u64 + 1;
+                testkit::sesion(
+                    id,
+                    &format!("sesion-{id}"),
+                    vec![testkit::agente(id * 10, "panel", testkit::quieto())],
+                )
+            })
+            .collect()
+    }
+
+    /// En una ventana estrecha la columna se queda en los números. Lo que se
+    /// protege es el terminal: 148 puntos de nombres de sesión son columnas que
+    /// la salida de un CLI ya no tiene.
+    #[test]
+    fn en_una_ventana_estrecha_la_columna_se_queda_en_los_numeros() {
+        // Se pregunta dentro de un frame: fuera de uno el contexto todavía no
+        // sabe de qué tamaño es la ventana, y contestaría por el valor de
+        // fábrica en vez de por el de verdad.
+        let mut ancha = Ventana::de(1480.0, 900.0);
+        let mut estrecha = Ventana::de(700.0, 460.0);
+        assert_eq!(ancha.frame_ctx(width), W);
+        assert_eq!(estrecha.frame_ctx(width), W_NARROW);
+        const { assert!(W_NARROW < W) };
+    }
+
+    /// Pinchar una pastilla cambia de sesión, y cambia a **esa**: es el fallo
+    /// que un test de índices coge y una mirada no.
+    #[test]
+    fn pinchar_una_pastilla_cambia_a_esa_sesion() {
+        let mut v = Ventana::nueva();
+        let s = sesiones(3);
+
+        v.calienta(|ui| {
+            sidebar(ui, &s, Some(s[0].id), 0.0);
+        });
+
+        // Las filas se apilan desde arriba con el hueco del tema por delante.
+        // Se recorre la columna de arriba abajo apuntando el orden en que
+        // aparecen las sesiones, que es lo que de verdad importa.
+        let mut vistas: Vec<u64> = Vec::new();
+        for k in 0..8 {
+            let y = theme::GAP + ROW_H * (k as f32 + 0.5) + 2.0 * k as f32;
+            v.clic(egui::pos2(W / 2.0, y));
+            if let Some(Action::Switch(id)) = v.frame(|ui| sidebar(ui, &s, Some(s[0].id), 0.0)) {
+                if vistas.last() != Some(&id) {
+                    vistas.push(id);
+                }
+            }
+        }
+        assert_eq!(
+            vistas,
+            vec![s[0].id, s[1].id, s[2].id],
+            "las pastillas no cambian a la sesión que se pincha, o no en ese orden"
+        );
+    }
+
+    /// El `+` del pie abre una sesión, y se queda clavado abajo pase lo que pase
+    /// con el número de sesiones: con muchas, la lista scrollea y el botón sigue
+    /// donde estaba.
+    #[test]
+    fn el_boton_del_pie_abre_una_sesion() {
+        for n in [0, 1, 12] {
+            let mut v = Ventana::nueva();
+            let s = sesiones(n);
+            v.calienta(|ui| {
+                sidebar(ui, &s, s.first().map(|x| x.id), 0.0);
+            });
+
+            let alto = v.rect().height();
+            let mut abrio = false;
+            for k in 0..40 {
+                let y = alto - theme::GAP - k as f32;
+                v.clic(egui::pos2(W / 2.0, y));
+                if let Some(Action::OpenSpawn(spawn::Kind::Session)) =
+                    v.frame(|ui| sidebar(ui, &s, s.first().map(|x| x.id), 0.0))
+                {
+                    abrio = true;
+                    break;
+                }
+            }
+            assert!(abrio, "con {n} sesiones no se encontró el + del pie");
+        }
+    }
+
+    /// La columna resume el estado de cada sesión, y lo hace en las dos anchuras
+    /// y con sesiones en cualquier estado: es lo que permite que un `cargo test`
+    /// que revienta en la tres se vea desde la uno.
+    #[test]
+    fn la_columna_se_dibuja_con_sesiones_de_todo_tipo() {
+        use crate::agent::State;
+        let estados = [
+            State::Working,
+            State::Blocked,
+            State::Idle,
+            State::Exited(0),
+            State::Exited(1),
+            State::Failed("no arrancó".to_owned()),
+        ];
+        let mut s: Vec<Session> = estados
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let id = i as u64 + 1;
+                testkit::sesion(
+                    id,
+                    "una-sesion-con-un-nombre-larguisimo-que-no-cabe",
+                    vec![testkit::agente_terminado(id * 10, "panel", e.clone())],
+                )
+            })
+            .collect();
+        s[0].panes
+            .push(testkit::agente_terminado(99, "otro", State::Blocked));
+
+        for (ancho, alto) in [(1480.0, 900.0), (700.0, 460.0)] {
+            let mut v = Ventana::de(ancho, alto);
+            for k in 0..3 {
+                v.frame(|ui| sidebar(ui, &s, Some(2), k as f64 * 0.4));
+            }
+            // Y sin ninguna sesión puesta: al cerrar la última no hay actual.
+            v.frame(|ui| sidebar(ui, &s, None, 0.0));
+        }
+    }
+
+    /// Sin sesiones la columna sigue estando, con su botón y sin filas.
+    #[test]
+    fn sin_sesiones_la_columna_sigue_ahi() {
+        let mut v = Ventana::nueva();
+        v.frame(|ui| sidebar(ui, &[], None, 0.0));
+    }
+}

@@ -12,6 +12,8 @@ mod repos;
 mod run;
 mod session;
 mod term;
+#[cfg(test)]
+mod testkit;
 mod theme;
 mod ui;
 

@@ -67,6 +67,7 @@ src/
   presets.rs   catálogo de agentes y detección en el PATH
   keys.rs      de teclas a bytes, y qué teclas se queda flow
   logo.rs      la marca: cuatro barras inclinadas, rasterizadas en código
+  testkit.rs   solo en tests: una ventana de mentira para probar lo que dibuja
   ui/
     mod.rs       el enum `Action` y el pegamento entre vistas
     chrome.rs    barra superior, botones de ventana y bordes de resize
@@ -80,6 +81,7 @@ src/
     widgets.rs   primitivas de dibujo
 docs/          documentación larga (ver abajo)
 examples/      pty_probe: sonda de la capa PTY
+tests/cli.rs   la línea de comandos, ejecutando el binario de verdad
 assets/brand/  la marca: SVG fuente, PNG e ICO derivados, y el recurso del .exe
 assets/fonts/  Inter y JetBrains Mono, embebidas en el binario
 .claude/skills/flow-ui/SKILL.md   guía de la interfaz para quien la toque
@@ -127,12 +129,40 @@ dos cosas. **Léelas antes de tocar el módulo correspondiente.**
    un atajo y te olvidas de la segunda, el atajo hará lo suyo **y** escribirá
    basura en la terminal. Hay un test que recorre la lista.
 
+## Cómo se prueba
+
+**La interfaz se prueba, y no hace falta una ventana para hacerlo.** `egui` es de
+modo inmediato y su contexto no depende del sistema de ventanas: se le da un
+rectángulo y una lista de eventos, corre un frame entero —reparto, respuestas,
+clics, foco— y devuelve lo que se habría pintado. Eso es `src/testkit.rs`, y es
+lo que permite probar que un clic en la pastilla de la sesión tres devuelve
+`Switch(3)` y no `Switch(2)`, o que el velo de un modal se come el clic que iba
+al panel de debajo.
+
+Tres cosas que conviene saber antes de escribir uno:
+
+1. **Un clic necesita un frame de calentamiento.** `egui` resuelve la
+   interacción contra los rectángulos del frame **anterior**, así que hay que
+   dibujar una vez antes de pinchar. Y si lo que se prueba es un modal, el modal
+   tiene que estar ya dibujado en ese primer frame.
+2. **Los modificadores van en dos sitios.** El evento dice «se pulsó Ctrl-N» y
+   `RawInput::modifiers` dice «Ctrl está bajado». Los atajos preguntan por lo
+   segundo; `Ventana::tecla` pone los dos.
+3. **Ningún test escribe en los ficheros del usuario.** El de configuración se
+   redirige por hilo con `config::redirigir_para_test`, y la lista de proyectos
+   tiene `Projects::en_memoria`. Si añades algo que escriba en disco, dale su
+   costura antes de probarlo.
+
+Lo que **no** está cubierto, y por qué: `main.rs` abre una ventana de verdad, y
+las ramas de error del PTY en `agent.rs` piden que falle el sistema operativo.
+Todo lo demás está por encima del 93% de líneas.
+
 ## Cómo se construye y se comprueba
 
 ```
 cargo build                    # depuración
 cargo run --release            # ejecutarlo
-cargo test                     # 84 tests: emulador, estado, reparto, paleta, marca, teclado, config
+cargo test                     # 245 tests, 95% de las líneas. Ver «Cómo se prueba»
 cargo clippy --all-targets     # CI lo pasa con -D warnings
 cargo install --path .         # instalar en ~/.cargo/bin
 ```

@@ -276,7 +276,7 @@ La lista completa y razonada está en [por dentro](docs/arquitectura.md).
 ## Desarrollo
 
 ```
-cargo test                                       # 84: emulador, estado, reparto, paleta, config, marca y teclado
+cargo test                                       # 245: emulador, estado, interfaz, paleta, config, marca y teclado
 cargo clippy --all-targets                       # sin warnings
 cargo run --example pty_probe -- "tu comando"    # sonda de la capa PTY
 ```

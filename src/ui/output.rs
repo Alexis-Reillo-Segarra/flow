@@ -174,3 +174,130 @@ fn line_job(cells: &[Cell], font: &FontId, cursor: Option<(usize, Color32)>) -> 
     }
     job
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::{self, Ventana};
+
+    /// El panel le dice al proceso de qué tamaño es su terminal, y solo cuando
+    /// la rejilla ha dejado de moverse: durante la animación el hueco cambia
+    /// cada frame, y un `SIGWINCH` por frame es lo que hace que una TUI se
+    /// repinte entera sesenta veces por segundo.
+    #[test]
+    fn el_tamano_se_le_dice_al_proceso_cuando_la_rejilla_para() {
+        let mut v = Ventana::nueva();
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        let antes = a.term().size();
+
+        v.frame(|ui| surface(ui, &mut a, true, false, 0.0));
+        assert_eq!(
+            a.term().size(),
+            antes,
+            "se redimensionó el terminal con la rejilla todavía moviéndose"
+        );
+
+        v.frame(|ui| surface(ui, &mut a, true, true, 0.0));
+        assert_ne!(
+            a.term().size(),
+            antes,
+            "la rejilla se asentó y no se le dijo el tamaño al proceso"
+        );
+        a.kill();
+    }
+
+    /// Un hueco ridículo no le pide al terminal una rejilla de cero columnas:
+    /// por debajo hay un mínimo, porque una rejilla vacía no tiene dónde
+    /// escribir.
+    #[test]
+    fn un_hueco_diminuto_no_deja_el_terminal_sin_columnas() {
+        let mut v = Ventana::de(120.0, 90.0);
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        v.frame(|ui| surface(ui, &mut a, true, true, 0.0));
+        let (cols, rows) = a.term().size();
+        assert!(cols >= 20, "el terminal se quedó en {cols} columnas");
+        assert!(rows >= 4, "el terminal se quedó en {rows} filas");
+        a.kill();
+    }
+
+    /// Mientras la vista esté pegada al final, sigue pegada. Es lo que hace que
+    /// la salida de un proceso se lea sola sin tocar nada.
+    #[test]
+    fn la_vista_arranca_pegada_al_final() {
+        let mut v = Ventana::nueva();
+        let mut a = testkit::agente(1, "eco", testkit::saluda());
+        testkit::deja_hablar(&mut a);
+
+        for _ in 0..3 {
+            v.frame(|ui| surface(ui, &mut a, true, true, 0.0));
+        }
+        assert!(a.follow, "la vista se despegó del final sin que nadie subiera");
+    }
+
+    /// El cursor parpadea en el panel con foco y no en los demás —ocho cursores
+    /// a destiempo son justo el ruido que esta interfaz no quiere—, y en un
+    /// proceso muerto no hay cursor que enseñar.
+    #[test]
+    fn el_cursor_se_dibuja_segun_el_foco_y_la_vida() {
+        let mut v = Ventana::nueva();
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        testkit::deja_hablar(&mut a);
+
+        // Con foco, las dos mitades del parpadeo; sin foco, apagado.
+        for t in [0.0, 0.45] {
+            v.frame(|ui| surface(ui, &mut a, true, true, t));
+        }
+        v.frame(|ui| surface(ui, &mut a, false, true, 0.0));
+        a.kill();
+
+        let mut muerto = testkit::agente_terminado(2, "eco", crate::agent::State::Exited(0));
+        v.frame(|ui| surface(ui, &mut muerto, true, true, 0.0));
+    }
+
+    /// Una fila con colores, negrita, subrayado y vídeo inverso se monta
+    /// fusionando los tramos que comparten estilo: una línea sin color tiene que
+    /// ser **un** tramo de texto y no doscientos.
+    #[test]
+    fn los_tramos_con_el_mismo_estilo_se_juntan() {
+        let mut v = Ventana::nueva();
+        let mut a = testkit::agente(1, "quieto", testkit::quieto());
+        // Se le mete la salida al emulador directamente: lo que se prueba es el
+        // montaje de la fila, no que un shell escriba lo que se le pide.
+        a.feed_para_test(b"\x1b[1;31mrojo\x1b[0m normal \x1b[7minverso\x1b[0m");
+
+        let job = v.frame(|_| {
+            let font = theme::mono(theme::MONO_SM);
+            let cells = a.term().line(0).expect("no hay ninguna fila").to_vec();
+            line_job(&cells, &font, None)
+        });
+        assert!(
+            job.sections.len() >= 3,
+            "los tres estilos de la fila salieron en {} tramos",
+            job.sections.len()
+        );
+        assert!(
+            job.sections.len() < 20,
+            "una fila de tres estilos se partió en {} tramos",
+            job.sections.len()
+        );
+        a.kill();
+    }
+
+    /// Una fila vacía mide cero y rompería la alineación de las que vienen
+    /// detrás, así que se monta con algo que ocupe una fila.
+    #[test]
+    fn una_fila_vacia_sigue_ocupando_una_fila() {
+        let mut v = Ventana::nueva();
+        let (vacia, llena) = v.frame(|ui| {
+            let font = theme::mono(theme::MONO_SM);
+            let vacia = line_job(&[], &font, None);
+            let llena = line_job(&[], &font, Some((0, theme::pal().accent_text)));
+            (
+                ui.fonts_mut(|f| f.layout_job(vacia)).rect.height(),
+                ui.fonts_mut(|f| f.layout_job(llena)).rect.height(),
+            )
+        });
+        assert!(vacia > 0.0, "una fila vacía midió cero");
+        assert!((vacia - llena).abs() < 1.0);
+    }
+}

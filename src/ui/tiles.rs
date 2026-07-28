@@ -596,3 +596,221 @@ mod tests {
         assert!((hueco - theme::GAP).abs() < 0.01, "hueco de {hueco}");
     }
 }
+
+#[cfg(test)]
+mod tests_en_pantalla {
+    use super::*;
+    use crate::testkit::{self, Ventana};
+
+    fn agentes(n: usize) -> Vec<Agent> {
+        (0..n)
+            .map(|i| testkit::agente(i as u64 + 1, &format!("p{i}"), testkit::quieto()))
+            .collect()
+    }
+
+    /// Dibuja hasta que la rejilla deja de moverse. El reparto se anima, así que
+    /// el rectángulo del primer frame no es el sitio donde acaba un panel.
+    fn asienta(v: &mut Ventana, agentes: &mut [Agent], tiling: &mut Tiling, foco: Option<u64>) {
+        for _ in 0..60 {
+            let t = 0.0;
+            v.frame(|ui| show(ui, agentes, foco, tiling, t));
+        }
+    }
+
+    /// Sin sesiones, la rejilla dice qué hacer y se deja las listas vacías: un
+    /// panel que ya no está no puede seguir contando para el foco por dirección.
+    #[test]
+    fn sin_sesiones_la_rejilla_se_vacia() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = agentes(2);
+        asienta(&mut v, &mut a, &mut t, None);
+        assert!(!t.rects.is_empty());
+
+        v.frame(|ui| empty(ui, &mut t));
+        assert!(t.rects.is_empty(), "la rejilla vacía dejó geometría vieja");
+        assert!(t.panes.is_empty());
+    }
+
+    /// El foco por dirección necesita geometría: sin haber dibujado, "el de la
+    /// derecha" no significa nada.
+    #[test]
+    fn sin_geometria_no_hay_vecinos() {
+        let t = Tiling::default();
+        assert_eq!(t.neighbour(1, Dir::Right), None);
+    }
+
+    /// Con cuatro paneles en una ventana ancha, cada dirección lleva a un panel
+    /// distinto y ninguna se sale por un borde.
+    #[test]
+    fn las_flechas_llevan_al_panel_de_al_lado() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = agentes(4);
+        asienta(&mut v, &mut a, &mut t, Some(1));
+
+        let centro = |id: u64| t.rects.iter().find(|(p, _)| *p == id).unwrap().1.center();
+        let (izq, der) = (Dir::Left, Dir::Right);
+
+        // Se busca el panel que esté más a la izquierda y se comprueba que por
+        // su izquierda no hay nadie y por su derecha sí. Vale para cualquier
+        // reparto, que es lo que hace falta: el reparto cambia con la forma de
+        // la ventana.
+        let mas_a_la_izquierda = t
+            .rects
+            .iter()
+            .min_by(|x, y| x.1.center().x.total_cmp(&y.1.center().x))
+            .unwrap()
+            .0;
+        assert_eq!(
+            t.neighbour(mas_a_la_izquierda, izq),
+            None,
+            "el panel del borde izquierdo tiene vecino por la izquierda"
+        );
+        let vecino = t
+            .neighbour(mas_a_la_izquierda, der)
+            .expect("el del borde izquierdo no tiene a nadie a su derecha");
+        assert!(
+            centro(vecino).x > centro(mas_a_la_izquierda).x,
+            "el vecino de la derecha está a la izquierda"
+        );
+
+        // Y lo mismo por arriba y por abajo, que en una rejilla de cuatro
+        // existen los dos.
+        let arriba = t
+            .rects
+            .iter()
+            .min_by(|x, y| x.1.center().y.total_cmp(&y.1.center().y))
+            .unwrap()
+            .0;
+        assert_eq!(t.neighbour(arriba, Dir::Up), None);
+        let abajo = t
+            .neighbour(arriba, Dir::Down)
+            .expect("el de arriba no tiene a nadie debajo");
+        assert!(centro(abajo).y > centro(arriba).y);
+    }
+
+    /// El primero se queda el hueco grande: es donde uno espera encontrar al
+    /// agente que abrió la sesión.
+    #[test]
+    fn el_primero_se_queda_el_hueco_grande_de_verdad() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = agentes(3);
+        asienta(&mut v, &mut a, &mut t, Some(1));
+
+        let area = |id: u64| {
+            let r = t.rects.iter().find(|(p, _)| *p == id).unwrap().1;
+            r.width() * r.height()
+        };
+        assert!(
+            area(1) >= area(2) && area(1) >= area(3),
+            "el primer panel no se quedó el hueco grande"
+        );
+    }
+
+    /// De uno a ocho paneles, en tres formas de ventana. Es el reparto entero:
+    /// `split` es recursivo y cada número de paneles recorre un camino distinto.
+    #[test]
+    fn se_reparte_de_uno_a_ocho_en_cualquier_ventana() {
+        for (ancho, alto) in [(1480.0, 900.0), (760.0, 460.0), (300.0, 900.0)] {
+            for n in 1..=crate::session::MAX_PANES {
+                let mut v = Ventana::de(ancho, alto);
+                let mut t = Tiling::default();
+                let mut a = agentes(n);
+                asienta(&mut v, &mut a, &mut t, Some(1));
+                assert_eq!(t.rects.len(), n, "se dibujaron {} de {n}", t.rects.len());
+            }
+        }
+    }
+
+    /// Un panel nace más pequeño y crece hasta su hueco: nace en vez de
+    /// aparecer. Lo que se comprueba es que llega, porque un suavizado mal
+    /// puesto se queda a medio camino para siempre.
+    #[test]
+    fn un_panel_recien_abierto_crece_hasta_su_hueco() {
+        let objetivo = Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 300.0));
+        let mut p = Pane::new(objetivo);
+        assert!(p.rect.width() < objetivo.width(), "no nació más pequeño");
+        assert!(!p.settled(objetivo));
+
+        for _ in 0..120 {
+            p.advance(objetivo, 1.0 / 60.0);
+        }
+        assert!(p.settled(objetivo), "el panel no llegó a su hueco");
+    }
+
+    /// El aspa de un panel lo cierra, y el clic en el cuerpo le da el foco. Un
+    /// clic en cualquier punto de un panel lo enfoca, como al pinchar una
+    /// ventana.
+    #[test]
+    fn el_aspa_cierra_y_el_cuerpo_enfoca() {
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        let mut a = agentes(2);
+        let segundo = a[1].id;
+        asienta(&mut v, &mut a, &mut t, Some(1));
+
+        // El cuerpo del segundo panel: se pincha en su centro, que está lejos de
+        // la cabecera y de su aspa.
+        let cuerpo = t.rects.iter().find(|(p, _)| *p == segundo).unwrap().1;
+        v.clic(cuerpo.center());
+        let accion = v.frame(|ui| show(ui, &mut a, Some(1), &mut t, 0.0));
+        assert!(
+            matches!(accion, Some(Action::Focus(id)) if id == segundo),
+            "un clic en el cuerpo del panel no le dio el foco: {accion:?}"
+        );
+
+        // El aspa vive en la cabecera y tiene identidad propia, así que se le
+        // puede preguntar a egui dónde acabó en vez de adivinarlo.
+        let aspa = v
+            .ctx()
+            .read_response(egui::Id::new(("pane-close", segundo)))
+            .expect("el aspa del panel no se dibujó")
+            .rect;
+        v.clic(aspa.center());
+        let accion = v.frame(|ui| show(ui, &mut a, Some(segundo), &mut t, 0.0));
+        assert!(
+            matches!(accion, Some(Action::Close(id)) if id == segundo),
+            "el aspa no cerró el panel: {accion:?}"
+        );
+    }
+
+    /// Los paneles se dibujan enteros en cada estado, con el foco puesto y sin
+    /// él: la cabecera, el estado y el marco cambian con las dos cosas.
+    #[test]
+    fn un_panel_se_dibuja_en_cada_estado() {
+        use crate::agent::State;
+        let mut v = Ventana::nueva();
+        let mut t = Tiling::default();
+        for estado in [
+            State::Working,
+            State::Blocked,
+            State::Idle,
+            State::Exited(0),
+            State::Exited(3),
+            State::Failed("no se pudo lanzar: el programa no existe".to_owned()),
+        ] {
+            let mut a = vec![testkit::agente_terminado(1, "panel", estado)];
+            for foco in [Some(1), None] {
+                for k in 0..3 {
+                    v.frame(|ui| show(ui, &mut a, foco, &mut t, k as f64 * 0.4));
+                }
+            }
+        }
+    }
+
+    /// Un nombre largo se recorta en la cabecera en vez de empujar al estado
+    /// fuera del panel.
+    #[test]
+    fn un_nombre_larguisimo_no_empuja_al_estado() {
+        let mut v = Ventana::de(760.0, 460.0);
+        let mut t = Tiling::default();
+        let mut a = vec![testkit::agente(
+            1,
+            "un-nombre-absurdamente-largo-que-no-cabe-en-ninguna-cabecera",
+            testkit::quieto(),
+        )];
+        asienta(&mut v, &mut a, &mut t, Some(1));
+    }
+}

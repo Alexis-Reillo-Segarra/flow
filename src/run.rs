@@ -290,3 +290,96 @@ mod tests {
         std::fs::remove_dir_all(&raiz).unwrap();
     }
 }
+
+#[cfg(test)]
+mod tests_del_subcomando {
+    use super::*;
+
+    /// `FLOW_INBOX` es del proceso entero, así que dos tests que lo toquen a la
+    /// vez se pisan. Se turnan.
+    static TURNO: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn con_inbox<T>(inbox: Option<&Path>, f: impl FnOnce() -> T) -> T {
+        let _guardia = TURNO.lock().unwrap_or_else(|e| e.into_inner());
+        let previo = std::env::var_os("FLOW_INBOX");
+        match inbox {
+            Some(p) => std::env::set_var("FLOW_INBOX", p),
+            None => std::env::remove_var("FLOW_INBOX"),
+        }
+        let salida = f();
+        match previo {
+            Some(v) => std::env::set_var("FLOW_INBOX", v),
+            None => std::env::remove_var("FLOW_INBOX"),
+        }
+        salida
+    }
+
+    /// Sin comando no hay nada que pedir, y se dice con un ejemplo: el error
+    /// más probable es no acordarse de cómo se escribe.
+    #[test]
+    fn sin_comando_avisa_y_sale_con_error() {
+        assert_eq!(con_inbox(None, || run(&[])), 2);
+    }
+
+    /// Fuera de flow no hay sesión en la que abrir el panel, y el mensaje lo
+    /// dice: el caso normal de este error es haberlo escrito en una terminal
+    /// cualquiera.
+    #[test]
+    fn fuera_de_flow_dice_que_esto_es_de_dentro() {
+        let args = vec!["cargo".to_owned(), "test".to_owned()];
+        assert_eq!(con_inbox(None, || run(&args)), 1);
+    }
+
+    /// Dentro de flow, la petición acaba escrita en el buzón y el subcomando
+    /// sale bien. No dice «abierto» sino «pedido»: lo abre flow, y si la sesión
+    /// está llena no lo abre.
+    #[test]
+    fn dentro_de_flow_deja_la_peticion_en_el_buzon() {
+        let inbox = std::env::temp_dir().join("flow-tests").join("run-buzon");
+        let _ = std::fs::remove_dir_all(&inbox);
+        std::fs::create_dir_all(&inbox).unwrap();
+
+        let args = vec!["cargo".to_owned(), "test".to_owned()];
+        let code = con_inbox(Some(&inbox), || run(&args));
+        assert_eq!(code, 0);
+
+        let dentro: Vec<_> = std::fs::read_dir(&inbox).unwrap().flatten().collect();
+        assert_eq!(dentro.len(), 1, "no salió exactamente una petición");
+        assert_eq!(
+            std::fs::read_to_string(dentro[0].path()).unwrap(),
+            "cargo test"
+        );
+        let _ = std::fs::remove_dir_all(&inbox);
+    }
+
+    /// Un buzón que no existe no es un pánico: es un error con su código de
+    /// salida, porque quien llama a esto es un agente y lo único que ve es eso.
+    #[test]
+    fn un_buzon_que_no_existe_sale_con_error() {
+        let inbox = std::env::temp_dir()
+            .join("flow-tests")
+            .join("buzon-que-no-existe");
+        let _ = std::fs::remove_dir_all(&inbox);
+
+        let args = vec!["algo".to_owned()];
+        assert_eq!(con_inbox(Some(&inbox), || run(&args)), 1);
+    }
+
+    /// La ayuda y la versión se imprimen sin abrir ninguna ventana: en cuanto un
+    /// binario acepta un subcomando, que además abra una ventana cuando le
+    /// preguntas cómo se usa es de mala educación.
+    #[test]
+    fn la_ayuda_y_la_version_dicen_algo_util() {
+        assert!(HELP.contains("flow run"));
+        assert!(HELP.contains("La salida se ve en el panel"));
+        assert!(!env!("CARGO_PKG_VERSION").is_empty());
+    }
+
+    /// Lo que no es un subcomando abre la ventana. `cli()` mira los argumentos
+    /// de verdad del proceso, que en un test son los de `cargo test`, así que lo
+    /// que se comprueba es justo eso: que no se los toma por un subcomando.
+    #[test]
+    fn lo_que_no_es_un_subcomando_abre_la_ventana() {
+        assert!(matches!(cli(), Cli::Gui));
+    }
+}
