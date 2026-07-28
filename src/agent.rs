@@ -55,9 +55,15 @@ impl State {
         }
     }
 
-    /// El cyan queda reservado para la marca, así que "terminó bien" va en
-    /// verde igual que "trabajando": los distingue la animación (uno late, el
-    /// otro está quieto) y la etiqueta, no el tono.
+    /// `WORKING` y `DONE` comparten color a propósito: los distingue la
+    /// animación —uno late, el otro está quieto— y la etiqueta, no el tono.
+    ///
+    /// Los nombres de los campos son el papel, no el tono. En los cuatro temas
+    /// de color son verde, ámbar y rojo de verdad; en el de casa, que es
+    /// monocromo, son cuatro grises ordenados por cuánto te reclama cada
+    /// estado. Lo que no cambia es que el color nunca va solo: van con él la
+    /// palabra de `label`, la forma de `widgets::paint_mark` —`IDLE` hueco,
+    /// el resto sólido— y su ritmo.
     pub fn color(&self) -> egui::Color32 {
         match self {
             State::Working | State::Exited(0) => crate::theme::pal().green,

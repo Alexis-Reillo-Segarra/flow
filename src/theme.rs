@@ -14,10 +14,16 @@
 //! # Temas
 //!
 //! La paleta ya no es fija: es un dato, `Palette`, y hay varios. El de casa
-//! —`flow`, negro OLED y verde de marca— sigue siendo el que sale de fábrica, y
-//! al lado van cuatro temas conocidos para quien ya tenga el escritorio de un
-//! color. Se cambia en caliente con `Ctrl-Shift-T` y se puede escribir uno
-//! propio en el fichero de configuración (ver `crate::config`).
+//! —`flow`, negro OLED y el blanco de marca— sigue siendo el que sale de
+//! fábrica, y al lado van cuatro temas conocidos para quien ya tenga el
+//! escritorio de un color. Se cambia en caliente con `Ctrl-Shift-T` y se puede
+//! escribir uno propio en el fichero de configuración (ver `crate::config`).
+//!
+//! El de casa es **monocromo entero**: fondo, divisorias, texto, acento y los
+//! cuatro estados viven en la línea del negro al blanco. Lo único con tono que
+//! puede salir en pantalla es lo que escribe un proceso, así que la regla de la
+//! casa —si ves color en flow, significa algo— llega a un sitio donde ya no
+//! hace falta enunciarla: si ves color, no lo ha puesto flow.
 //!
 //! **Un tema no es una lista de gustos: es un contrato**, y los tests de este
 //! módulo lo recorren entero **para todos los temas incluidos**, no solo para el
@@ -28,9 +34,11 @@
 //!    el peor caso real de la interfaz—.
 //! 2. Su acento tiene dos caras, una de trazo (≥3:1) y una de texto (≥4,5:1),
 //!    **con el mismo tono**, para que se lean como el mismo color y no como dos.
-//! 3. Sus cuatro colores de estado cumplen 4,5:1 y se distinguen entre sí por
-//!    tono, no solo por claridad: quien no separe rojo de verde tiene que poder
-//!    separarlos igual.
+//! 3. Sus cuatro colores de estado cumplen 4,5:1 y se distinguen entre sí, por
+//!    tono (25° mínimo) **o** por claridad (1,5:1 mínimo). Lo primero es lo que
+//!    hacen los temas de color, y se pide tono y no claridad porque quien no
+//!    separe rojo de verde los tiene casi a la misma luminancia. Lo segundo es
+//!    lo único que le queda a un tema monocromo, donde no hay tono que separar.
 //! 4. Sus slots ANSI conservan su nombre —el cian del tema es cian— y ninguno
 //!    de los dieciséis es exactamente el acento: si lo fuera, lo que dice flow
 //!    y lo que escribe un proceso saldrían del mismo color.
@@ -203,15 +211,25 @@ pub struct Palette {
     pub accent_text: Color32,
 
     // ── Estados ──
-    // Nunca decoran: si ves uno, significa eso.
+    //
+    // Nunca decoran: si ves uno, significa eso. Los nombres son el **papel** y
+    // no el tono: en los cuatro temas de color son verde, ámbar y rojo de
+    // verdad, y en el de casa, que es monocromo, son cuatro grises ordenados
+    // por cuánto te reclama cada estado. Se llaman así porque además de nombrar
+    // el papel son el formato del fichero de configuración, y renombrarlos
+    // rompería los temas que la gente ya tenga escritos.
     /// Trabajando (latiendo) y terminado con éxito (sólido).
     pub green: Color32,
-    /// Bloqueado esperando respuesta. El único estado que reclama atención.
+    /// Bloqueado esperando respuesta. El único estado que reclama atención —lo
+    /// hace parpadeando, no siendo el más claro—. También los avisos del
+    /// formulario y el botón `^C`.
     pub amber: Color32,
-    /// Terminado con error o imposible de lanzar.
+    /// Terminado con error o imposible de lanzar. También todo lo que hace
+    /// daño: el botón `KILL`, la X de cerrar y los mensajes de error. Por eso
+    /// es el más claro de los cuatro en el tema monocromo.
     pub red: Color32,
     /// Vivo pero sin actividad. Cumple AA como los demás aunque su papel sea el
-    /// de "no me mires".
+    /// de "no me mires", y es el más apagado de los cuatro.
     pub slate: Color32,
 
     /// Los 16 colores ANSI, armonizados con el tema para que el output de los
@@ -372,7 +390,7 @@ impl Palette {
 /// correcciones que pedía el contraste (ver el comentario del módulo).
 pub fn builtin() -> Vec<Palette> {
     vec![
-        // El tema de casa: negro OLED y el verde de flow.
+        // El tema de casa: negro OLED, gris y blanco. Monocromo.
         //
         // El fondo es `#000000` exacto, y es una decisión, no un valor por
         // defecto que nadie revisó: en un panel OLED ese valor es el píxel
@@ -381,19 +399,83 @@ pub fn builtin() -> Vec<Palette> {
         // ejemplo— lo encendería entero. Los demás temas traen su propio fondo
         // porque un tema es justo eso; el de casa no lo toca.
         //
-        // Su factor de trazo, 0,627, es el que ya relacionaba `#30cf97` con
-        // `#1e825f` cuando la paleta era fija: sale el mismo verde de siempre.
+        // El chrome no tiene tono: ni el negro, ni los grises de las
+        // divisorias, ni los cuatro niveles de texto. Antes tiraban a azul un
+        // par de puntos —`#c6cbd2`, `#3c424b`— y ese matiz es justo lo que un
+        // tema monocromo no puede permitirse: con el acento en blanco no hay
+        // ningún tono al que arrimarse, así que un gris azulado no se lee como
+        // "neutro con carácter", se lee como una desviación.
+        //
+        // Aquí el acento **es** el blanco puro, y de ahí sale casi todo lo
+        // demás:
+        //
+        // - El resto de la interfaz se queda por debajo. `text_hi` baja de
+        //   `#ffffff` a `#e6e6e6` porque el blanco pasa a ser de la marca: si
+        //   lo llevara también el texto destacado, el foco dejaría de tener
+        //   nada que lo separe de un rótulo cualquiera. Con hue no se puede
+        //   distinguir; con claridad sí.
+        // - El slot ANSI 15 se mueve a `#f2f2f2`. Ningún slot puede ser
+        //   exactamente el acento —hay un test— y aquí choca el "blanco
+        //   brillante" del terminal. Se mueve el slot y no el acento, que es lo
+        //   que se hace siempre: dos puntos de blanco no se ven en la salida de
+        //   un proceso, y el acento sí tiene que ser el blanco de verdad.
+        //
+        // Los cuatro colores de estado también son grises, así que en este tema
+        // **no hay un solo color de interfaz**: lo único con tono que puede
+        // aparecer en pantalla es lo que escribe un proceso. Los nombres del
+        // campo —`green`, `amber`, `red`— se quedan porque nombran el papel y
+        // no el tono, y porque son el formato del fichero de configuración: los
+        // otros cuatro temas siguen poniendo ahí verde, ámbar y rojo de verdad.
+        //
+        // Lo que sostiene esto es que el estado nunca se dijo solo con color.
+        // Van cuatro canales a la vez y el color siempre fue el prescindible:
+        //
+        // - **La palabra**, siempre al lado: `WORKING`, `BLOCKED`, `IDLE`,
+        //   `DONE`, `EXIT`, `FAILED`.
+        // - **La forma**: `IDLE` va hueco y todo lo demás sólido, que es lo que
+        //   separa `DONE` de `IDLE` ahora que los dos son un gris parecido.
+        // - **El ritmo**: `WORKING` late, `BLOCKED` parpadea, los terminales
+        //   están quietos.
+        // - **La claridad**, que es lo que sustituye al tono aquí. El orden es
+        //   el del daño y no el de la urgencia: `red` arriba del todo, `amber`
+        //   debajo, luego lo que va bien y `IDLE` el más apagado.
+        //
+        // Ese orden **no** es el que parecía obvio, y conviene saber por qué
+        // antes de "arreglarlo". Mirando solo las marcas de estado sale al
+        // revés: quien te reclama es `BLOCKED`, no un proceso que ya murió, así
+        // que `amber` querría ir arriba. Pero estos dos campos no pintan solo
+        // marcas — `red` es además el botón `KILL`, la X de cerrar y los
+        // mensajes de error, y `amber` es el `^C` y los avisos del formulario—,
+        // y en esos seis sitios «error» tiene que pesar más que «aviso». Con
+        // tono se podía tener las dos cosas a la vez porque el rojo y el ámbar
+        // se separaban sin ordenarse; en una sola dimensión hay que elegir, y
+        // pierde la marca de estado, que es la que tiene con qué compensar:
+        // `BLOCKED` parpadea, y el parpadeo gana a cualquier claridad. Si algún
+        // día subes `amber` por encima de `red`, `KILL` pasa a verse más flojo
+        // que `^C`.
+        //
+        // El par que de verdad depende de la claridad es `DONE` contra
+        // `EXIT`/`FAILED`: los dos son sólidos y quietos, así que solo los
+        // separan la claridad y la palabra. De ahí que sean los dos que más se
+        // han apartado —7,10:1 y 18,43:1 sobre el fondo, 2,60:1 entre ellos—, y
+        // de ahí que el test de estados acepte ahora separación por claridad
+        // además de por tono: ver `los_estados_se_distinguen_sin_mirar_el_color`.
+        //
+        // El factor de trazo, 0,43, deja la cara oscura del acento en
+        // `#6e6e6e`: 4,12:1, entre el 3:1 que la WCAG pide a un componente y el
+        // 4,5:1 que pide a un texto, que es donde tiene que quedarse para que
+        // `accent_text` siga teniendo motivo de existir.
         Palette::new(
             "flow",
-            "negro OLED y el verde de casa",
-            [0x000000, 0x0a0a0c, 0x14161a, 0x0d0e11, 0x3c424b, 0x5a626d],
-            [0xc6cbd2, 0xffffff, 0x97a0ab, 0x7b838e],
-            0x30cf97,
-            0.627,
-            [0x6ee787, 0xf0b45c, 0xf2696e, 0x7c8695],
+            "negro OLED, gris y blanco: monocromo",
+            [0x000000, 0x0a0a0a, 0x161616, 0x0e0e0e, 0x424242, 0x626262],
+            [0xcbcbcb, 0xe6e6e6, 0xa0a0a0, 0x848484],
+            0xffffff,
+            0.43,
+            [0x969696, 0xc0c0c0, 0xf0f0f0, 0x868686],
             [
-                0x14161a, 0xf2696e, 0x6ee787, 0xf0b45c, 0x6fa8f5, 0xc792ea, 0x35d6f5, 0xc6cbd2,
-                0x454a52, 0xff8b90, 0x95ffaa, 0xffd082, 0x92c2ff, 0xddb0ff, 0x8de9ff, 0xffffff,
+                0x161616, 0xf2696e, 0x6ee787, 0xf0b45c, 0x6fa8f5, 0xc792ea, 0x35d6f5, 0xcbcbcb,
+                0x4a4a4a, 0xff8b90, 0x95ffaa, 0xffd082, 0x92c2ff, 0xddb0ff, 0x8de9ff, 0xf2f2f2,
             ],
         ),
         // Catppuccin Mocha. El acento es el mauve de la casa.
@@ -895,7 +977,7 @@ mod tests {
     #[test]
     fn el_acento_de_flow_cumple_lo_de_un_componente_de_interfaz() {
         // `accent` nunca es una letra: es marco, relleno y trazo. A eso la WCAG
-        // 1.4.11 le pide 3:1, no 4,5:1, y el verde de casa se queda a propósito
+        // 1.4.11 le pide 3:1, no 4,5:1, y el gris de casa se queda a propósito
         // entre los dos: si subiera, `accent_text` sobraría. Es una regla del
         // tema de flow y no del contrato —un tema con el fondo más claro puede
         // necesitar un trazo más contrastado—, así que se comprueba solo aquí.
@@ -911,22 +993,77 @@ mod tests {
 
     #[test]
     fn los_estados_se_distinguen_sin_mirar_el_color() {
-        // El color nunca va solo —cada estado lleva su palabra al lado—, pero
-        // eso no es excusa para que dos estados sean el mismo tono. 25° es lo
-        // mínimo para que se separen de un vistazo en una marca de 6 px.
+        // El color nunca va solo —cada estado lleva su palabra, su forma y su
+        // ritmo—, pero eso no es excusa para que dos estados se vean igual: el
+        // caso peor es `DONE` contra `EXIT`, los dos sólidos y los dos quietos.
+        // Tienen que separarse de un vistazo en una marca de 6 px.
+        //
+        // Hay dos maneras de conseguirlo y valen las dos, porque son la misma
+        // idea aplicada a paletas distintas:
+        //
+        // - **Por tono**, 25° mínimo, que es lo que hacen los cuatro temas de
+        //   color. Se pide tono y no claridad porque quien no distingue rojo de
+        //   verde los tiene casi a la misma luminancia: en Nord el verde y el
+        //   rojo de estado se quedan en 1,02:1 entre ellos y aun así no se
+        //   confunden.
+        // - **Por claridad**, 1,5:1 mínimo, que es lo único que le queda a un
+        //   tema monocromo. En gris no hay tono que separar, así que el eje
+        //   pasa a ser la luminancia — y, de paso, ahí la separación funciona
+        //   igual para todo el mundo, incluido quien no distinga colores.
+        //
+        // Lo que **no** vale es no cumplir ninguna de las dos. Un tema que
+        // ponga tres grises casi iguales deja `DONE` y `FAILED` con la palabra
+        // como única diferencia, y la palabra es el respaldo, no la señal.
+        const TONO_MIN: f64 = 25.0;
+        const CLARIDAD_MIN: f64 = 1.5;
+
         for p in themes() {
             for (a, na, b, nb) in [
                 (p.green, "verde", p.amber, "ámbar"),
                 (p.amber, "ámbar", p.red, "rojo"),
                 (p.green, "verde", p.red, "rojo"),
             ] {
-                let gap = hue_gap(a, b);
+                let tono = hue_gap(a, b);
+                let claridad = contrast(a, b);
                 assert!(
-                    gap >= 25.0,
-                    "[{}] {na} y {nb} están a {gap:.0}° y se confunden",
+                    tono >= TONO_MIN || claridad >= CLARIDAD_MIN,
+                    "[{}] {na} y {nb} se confunden: {tono:.0}° de tono \
+                     (hacen falta {TONO_MIN:.0}) y {claridad:.2}:1 de claridad \
+                     (hacen falta {CLARIDAD_MIN:.2})",
                     p.name
                 );
             }
+        }
+    }
+
+    #[test]
+    fn el_tema_de_casa_no_tiene_un_solo_color_de_interfaz() {
+        // El de casa es monocromo, y eso incluye los estados: lo único con tono
+        // que puede salir en pantalla es lo que escribe un proceso. Es la regla
+        // «si ves color en flow, significa algo» llevada al extremo en que ya no
+        // hace falta enunciarla, y es fácil de romper sin querer —basta con
+        // recuperar el verde de estado de antes— así que se comprueba.
+        //
+        // Los 16 slots ANSI no entran: no son color de interfaz, son la salida
+        // ajena, y volverlos grises repintaría el `git diff` de otro programa.
+        let p = &themes()[0];
+        assert_eq!(p.name, "flow", "el tema de casa es el primero de la lista");
+        for (nombre, c) in textos(p).iter().chain(
+            [
+                ("bg", p.bg),
+                ("raised", p.raised),
+                ("sel", p.sel),
+                ("hover", p.hover),
+                ("line", p.line),
+                ("line_hi", p.line_hi),
+                ("accent", p.accent),
+            ]
+            .iter(),
+        ) {
+            assert!(
+                c.r() == c.g() && c.g() == c.b(),
+                "{nombre} es {c:?} y el tema de casa no tiene tono"
+            );
         }
     }
 

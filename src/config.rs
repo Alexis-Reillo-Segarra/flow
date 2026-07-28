@@ -269,27 +269,31 @@ theme = {theme}
 # raised = #17171c      ; campos y cajas
 # sel    = #202028      ; fila seleccionada
 # hover  = #191920
-# line   = #3c424b      ; las divisorias de 1 px
-# line_hi = #5a626d     ; borde exterior y campo con foco
+# line   = #424242      ; las divisorias de 1 px
+# line_hi = #626262     ; borde exterior y campo con foco
 #
-# text       = #c6cbd2  ; el nivel normal
-# text_hi    = #ffffff  ; lo que destaca
-# text_dim   = #97a0ab
-# text_faint = #7b838e  ; el más flojo: sigue teniendo que leerse
+# text       = #cbcbcb  ; el nivel normal
+# text_hi    = #e6e6e6  ; lo que destaca
+# text_dim   = #a0a0a0
+# text_faint = #848484  ; el más flojo: sigue teniendo que leerse
 #
-# accent = #30cf97      ; la marca: foco, cursor, logo
-# accent_stroke = #1e825f   ; opcional: la cara oscura, si no te vale la que sale sola
+# accent = #ffffff      ; la marca: foco, cursor, logo
+# accent_stroke = #6e6e6e   ; opcional: la cara oscura, si no te vale la que sale sola
 #
-# green = #6ee787       ; WORKING y DONE
-# amber = #f0b45c       ; BLOCKED: el único estado que reclama atención
-# red   = #f2696e       ; EXIT != 0 y FAILED
-# slate = #7c8695       ; IDLE
+# Los cuatro estados. El nombre es el papel, no el tono: el tema de casa es
+# monocromo y los pone en grises ordenados por daño, porque `red` y `amber`
+# pintan también el botón KILL y el ^C. Se distinguen entre sí por tono
+# (25° mínimo) o por claridad (1,5:1 mínimo).
+# red   = #f0f0f0       ; EXIT != 0, FAILED, KILL y los errores
+# amber = #c0c0c0       ; BLOCKED (parpadea), ^C y los avisos
+# green = #969696       ; WORKING y DONE
+# slate = #868686       ; IDLE
 #
 # Los 16 colores del terminal, ansi0 … ansi15. Los que no toques se heredan.
-# ansi0  = #14161a
+# ansi0  = #161616
 # ansi1  = #f2696e
 # ansi6  = #35d6f5
-# ansi15 = #ffffff
+# ansi15 = #f2f2f2
 #
 # Un aviso que flow no puede comprobarte: los temas incluidos pasan tests de
 # contraste (WCAG AA sobre su propio fondo, también con el panel atenuado) y el
