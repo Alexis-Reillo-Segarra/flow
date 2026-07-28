@@ -75,6 +75,29 @@ línea —igual que un humano mirando la terminal de reojo:
 Es una heurística y a veces se equivocará. Los tests de `agent.rs` fijan los
 casos que importan.
 
+## Lo que no es igual en los tres sistemas
+
+flow corre en Windows, en Linux y en macOS, y CI lo comprueba en los tres. Lo
+que cambia son **cinco sitios**, cada uno con su `cfg` y su test; fuera de ellos
+el código es el mismo. Están aquí juntos porque la lista completa es corta y es
+lo que hay que mirar antes de añadir una decisión que dependa del sistema.
+
+| Qué                       | Dónde                   | Por qué no puede ser igual                                                                 |
+| ------------------------- | ----------------------- | ------------------------------------------------------------------------------------------ |
+| El shell del panel        | `presets::shell`        | En Windows `cmd`; fuera, el de `$SHELL` —`zsh` en macOS— porque no todo el mundo tiene `bash` |
+| Qué se puede ejecutar     | `presets::ejecutable`   | En Windows lo dice la extensión (`PATHEXT`); en Unix, el bit de ejecución                    |
+| La tecla de los atajos    | `keys::reservada`       | En macOS es Cmd, y así el `Ctrl` entero se queda para el proceso                            |
+| Qué separa una ruta       | `projects::name_of`, `repos::same_path` | Fuera de Windows `\` es un carácter válido de nombre, y las mayúsculas cuentan |
+| Redimensionar por el borde| `ui::chrome::resize_handles` | En macOS lo hace AppKit; la orden de winit ni siquiera existe allí                     |
+
+Y dos cosas que **no** cambian y podrían parecer que sí: el fichero de
+configuración va a `~/.config/flow` también en macOS —es texto para editar a
+mano, y ahí es donde lo buscan las herramientas de terminal— y la ventana va sin
+decoración del sistema en los tres, con la misma barra propia.
+
+Lo que sigue sin estar cubierto por los tests es lo de siempre: `main.rs` abre
+una ventana de verdad, y ninguna máquina de CI la abre.
+
 ## Limitaciones conocidas
 
 - **Sin persistencia.** Al cerrar flow se matan todos los agentes. No hay

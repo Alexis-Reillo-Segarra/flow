@@ -17,8 +17,9 @@ bloqueado esperando una respuesta.
 - **Lenguaje:** Rust 2021. `flow v0.1.0`.
 - **GUI:** [`egui`](https://github.com/emilk/egui) / `eframe` (modo inmediato).
 - **PTY:** `portable-pty`. Emulador de terminal **propio**, no una biblioteca.
-- **Plataforma:** multiplataforma en el código; **Windows es donde se desarrolla,
-  se prueba y se publica**. Linux y macOS compilan desde fuente.
+- **Plataforma:** Windows, Linux y macOS. Se desarrolla en Windows, pero CI corre
+  tests y `clippy` en los tres —macOS en sus dos arquitecturas— y la release
+  publica un binario para cada uno.
 - **Sin red.** flow no abre puertos, no habla con ningún servicio y no envía
   telemetría. Todo lo que escribe en disco son dos ficheros de texto.
 - **Idioma del proyecto:** el código, los comentarios, los nombres de los tests
@@ -128,6 +129,18 @@ dos cosas. **Léelas antes de tocar el módulo correspondiente.**
    en `keys::reservada`, que impide que además le lleguen al proceso. Si añades
    un atajo y te olvidas de la segunda, el atajo hará lo suyo **y** escribirá
    basura en la terminal. Hay un test que recorre la lista.
+   Dos detalles que ya costaron un fallo cada uno: se pregunta por
+   `Modifiers::command` y no por `ctrl` —en macOS la tecla es Cmd—, y siempre con
+   `!alt`, porque **en Windows AltGr es Ctrl+Alt** y sin eso escribir `@` salta
+   de sesión. En los tests, los modificadores se construyen con
+   `testkit::atajo`, `testkit::control` y `testkit::altgr`: las constantes de
+   egui (`Modifiers::CTRL`) son banderas sueltas que el sistema no manda nunca.
+11. **Lo que cambia de un sistema a otro va detrás de un `cfg`, con su motivo
+   escrito y su test.** Son cinco sitios y no más: `presets::shell` y
+   `presets::ejecutable`, `keys::reservada`, `projects::name_of` y
+   `repos::same_path`, y `ui::chrome::resize_handles`. Ninguno da por hecho
+   Windows, y los cuatro primeros llevan un test que recorre las dos ramas. Si
+   escribes `cmd`, `bash` o `\` en un sitio nuevo, casi seguro que va aquí.
 
 ## Cómo se prueba
 
@@ -162,7 +175,7 @@ Todo lo demás está por encima del 93% de líneas.
 ```
 cargo build                    # depuración
 cargo run --release            # ejecutarlo
-cargo test                     # 245 tests, 95% de las líneas. Ver «Cómo se prueba»
+cargo test                     # 253 tests, 95% de las líneas. Ver «Cómo se prueba»
 cargo clippy --all-targets     # CI lo pasa con -D warnings
 cargo install --path .         # instalar en ~/.cargo/bin
 ```
@@ -176,8 +189,21 @@ entorno de desarrollo, leídas en `app.rs`:
 | `FLOW_FORM=session` \| `pane` | Arranca con el formulario abierto           |
 | `FLOW_PICKER=1` | Arranca con el selector de temas abierto                 |
 
-CI: `.github/workflows/ci.yml` corre tests y clippy en Windows en cada push y
-cada PR. `release.yml` publica el `.exe` al empujar una etiqueta `vX.Y.Z`.
+CI: `.github/workflows/ci.yml` corre tests y clippy en Windows, Linux y macOS
+—Intel y Apple Silicon— en cada push y cada PR. `release.yml` publica los cuatro
+binarios al empujar una etiqueta `vX.Y.Z`.
+
+Para comprobar los otros sistemas sin salir de Windows, `cargo check` y `clippy`
+cruzados llegan lejos —compilan los tests incluidos— y no necesitan enlazador:
+
+```
+rustup target add x86_64-unknown-linux-gnu aarch64-apple-darwin
+cargo clippy --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+cargo clippy --all-targets --target aarch64-apple-darwin -- -D warnings
+```
+
+Lo que **no** cogen es el comportamiento: un test cuya rama de macOS solo corre
+en macOS pasa por CI, no por aquí.
 
 ## Interoperar con flow desde dentro
 

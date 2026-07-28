@@ -367,9 +367,9 @@ y el estado dentro del nombre.
 en el sentido de siempre: `Tab` es del proceso —completa rutas— desde que se
 escribe directamente en el panel. Los widgets pintados a mano tampoco entran en
 el orden de foco de egui. Las rutas principales sí son accesibles por teclado
-(`Ctrl-N`, `Ctrl-T`, `Ctrl-Shift-T`, `Ctrl-W`, `Ctrl-1`…`9`, `Alt-1`…`8`,
-`Alt`+flechas, y escribir va siempre al panel con el foco), pero llegar a los
-botones de la barra inferior requiere ratón. Los dos que más importan tienen
+(`Ctrl-N`, `Ctrl-T`, `Ctrl-Shift-T`, `Ctrl-W`, `Ctrl-1`…`9` —`Cmd` en macOS—,
+`Alt-1`…`8`, `Alt`+flechas, y escribir va siempre al panel con el foco), pero
+llegar a los botones de la barra inferior requiere ratón. Los dos que más importan tienen
 tecla propia dentro del proceso, que es donde se esperan: `^C` es `Ctrl-C` y
 `ESC` es `Esc`. El selector de temas se maneja entero con flechas, `Enter` y
 `Esc`.
@@ -400,9 +400,9 @@ dejado de distinguirse de un panel `BLOCKED`; se usa el aqua, que está a 100°.
 
 ## Escribirse uno
 
-El fichero es `%APPDATA%\flow\config` —o `$XDG_CONFIG_HOME/flow/config` fuera de
-Windows—, y el selector te enseña su ruta abajo del todo. flow lo escribe la
-primera vez que guardas un tema, ya comentado con todas las claves.
+El fichero es `%APPDATA%\flow\config` —o `~/.config/flow/config` fuera de
+Windows, macOS incluido—, y el selector te enseña su ruta abajo del todo. flow lo
+escribe la primera vez que guardas un tema, ya comentado con todas las claves.
 
 ```ini
 theme = mío

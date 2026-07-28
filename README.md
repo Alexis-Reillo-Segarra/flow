@@ -25,36 +25,53 @@ color es de los procesos.*
 
 ## Instalarlo
 
-### Windows — descargar y abrir
+### Descargarlo
 
-**[⬇ Descargar `flow.exe`](https://github.com/Alexis-Reillo-Segarra/flow/releases/latest)**
+**[⬇ Descargar la última versión](https://github.com/Alexis-Reillo-Segarra/flow/releases/latest)**
 
-Es un único fichero de 11 MB. Cópialo donde quieras —el escritorio, una carpeta
-cualquiera— y ábrelo con doble clic. No hay instalador, no escribe en el
-registro, no pide permisos de administrador. **Para desinstalarlo, borra el
-fichero.**
+Un único fichero para cada sistema. Cópialo donde quieras —el escritorio, una
+carpeta cualquiera— y ábrelo. No hay instalador, no escribe en el registro, no
+pide permisos de administrador. **Para desinstalarlo, borra el fichero.**
+
+| Sistema                    | Fichero                  |
+| -------------------------- | ------------------------ |
+| Windows                    | `flow-windows-x86_64.exe` |
+| macOS con Apple Silicon    | `flow-macos-arm64`       |
+| macOS con Intel            | `flow-macos-x86_64`      |
+| Linux                      | `flow-linux-x86_64`      |
 
 Si quieres poder abrirlo escribiendo `flow` en cualquier terminal, déjalo en una
-carpeta que esté en el `PATH`.
+carpeta que esté en el `PATH`. Fuera de Windows hay que darle permiso de
+ejecución una vez: `chmod +x flow-…`.
 
 <details>
-<summary>Dos cosas que pasan la primera vez, y son normales</summary>
+<summary>Lo que dice cada sistema la primera vez, y por qué</summary>
 
-- **Windows dirá que «ha protegido tu PC».** Es SmartScreen, y sale con
-  cualquier programa sin firma digital, no porque este tenga nada raro:
-  *Más información* → *Ejecutar de todas formas*. Quitarlo de en medio requiere
-  un certificado de firma de código, que se paga.
-- **El antivirus puede tardar un rato** en dejarlo abrir la primera vez. Es lo
-  normal con binarios nuevos y sin reputación.
+Los tres se quejan de lo mismo: el binario no está firmado. Firmarlo requiere un
+certificado de desarrollador, que se paga —y en Apple, además, una cuota anual—.
+
+- **Windows** dirá que «ha protegido tu PC». Es SmartScreen: *Más información* →
+  *Ejecutar de todas formas*. El antivirus también puede tardar un rato en
+  dejarlo abrir, que es lo normal con binarios nuevos y sin reputación.
+- **macOS** dirá que no se puede comprobar que esté libre de malware, porque no
+  está notarizado. Se abre desde *Ajustes del sistema* → *Privacidad y
+  seguridad* → *Abrir igualmente*, o de una vez con
+  `xattr -d com.apple.quarantine flow-macos-…`.
+- **Linux** no dice nada; solo hay que acordarse del `chmod +x`.
 
 </details>
 
 ### Cualquier sistema — compilarlo
 
-Solo hace falta [Rust](https://rustup.rs). No hay dependencias del sistema que
-instalar, ni SDKs, ni `pkg-config`; las tipografías van dentro del binario.
+Hace falta [Rust](https://rustup.rs), y en Linux las bibliotecas de ventanas
+contra las que enlaza cualquier programa con interfaz gráfica. En Windows y en
+macOS no hace falta nada más: ni SDKs, ni `pkg-config`. Las tipografías van
+dentro del binario en los tres.
 
 ```
+# Solo en Linux (Debian y Ubuntu; en otras distribuciones, sus equivalentes)
+sudo apt install libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
 git clone https://github.com/Alexis-Reillo-Segarra/flow.git
 cd flow
 cargo run --release        # probarlo sin más
@@ -65,11 +82,12 @@ cargo install --path .     # dejarlo instalado: luego se abre escribiendo `flow`
 desinstalarlo, `cargo uninstall flow`. Para actualizarlo, `git pull` y vuelve a
 lanzar `cargo install --path .`.
 
-> **Sobre otros sistemas.** El código es multiplataforma, pero quien lo
-> desarrolla y lo prueba trabaja en Windows, que es de donde salen los binarios
-> publicados. En Linux y macOS se compila desde fuente; en Linux hacen falta las
-> bibliotecas de ventanas habituales de cualquier GUI (`libxkbcommon`, X11 o
-> Wayland). Si algo no va en tu sistema,
+> **Sobre los tres sistemas.** flow se desarrolla en Windows, pero los tests y
+> `clippy` pasan en Windows, en Linux y en macOS —en sus dos arquitecturas— en
+> cada push y cada pull request, y de ahí salen los binarios publicados. Lo que
+> no es lo mismo en todos está dicho donde toca: la tecla de los atajos
+> [más abajo](#atajos), y las rutas en [dónde deja las cosas](#dónde-deja-las-cosas).
+> Si algo no va en tu sistema,
 > [abre un issue](https://github.com/Alexis-Reillo-Segarra/flow/issues).
 
 ---
@@ -122,9 +140,9 @@ estado lleva su palabra, su forma y su ritmo.
 
 ### Atajos
 
-**Todo el teclado es del proceso menos estas once combinaciones**, que son las
-que mueven la aplicación. **Ctrl** se mueve entre sesiones y **Alt**, dentro de
-la que estás mirando.
+**Todo el teclado es del proceso menos las combinaciones de esta tabla**, que son
+las que mueven la aplicación. **Ctrl** se mueve entre sesiones y **Alt**, dentro
+de la que estás mirando.
 
 | Tecla          | Acción                                             |
 | -------------- | -------------------------------------------------- |
@@ -139,10 +157,14 @@ la que estás mirando.
 | `Enter`        | En el formulario: pasa al siguiente paso, o lanza  |
 | `Esc`          | Cerrar el formulario                               |
 
+**En macOS es `Cmd` en lugar de `Ctrl`** —`Cmd-N`, `Cmd-W`, `Cmd-1`—, que es
+donde un Mac espera los atajos de aplicación. `Alt` es la tecla `⌥`.
+
 Lo demás llega entero al panel con el foco, `Ctrl-A`, `Ctrl-R` o `Ctrl-Z`
 incluidos. El precio de las tres primeras hay que saberlo: **`Ctrl-W` cierra el
 panel en vez de borrar la palabra anterior**, y lo mismo pasa con `Ctrl-N` y
-`Ctrl-T` en un shell o en una TUI que los use.
+`Ctrl-T` en un shell o en una TUI que los use. **En macOS ese precio no se
+paga**: como los atajos son de `Cmd`, el `Ctrl` entero se queda para el proceso.
 
 ---
 
@@ -150,9 +172,11 @@ panel en vez de borrar la palabra anterior**, y lo mismo pasa con `Ctrl-N` y
 
 - **Cualquier CLI vale.** flow no integra ningún agente en concreto: todos son
   procesos de terminal. Puedes tener a la vez `claude`, `codex` y los tests
-  corriendo, cada uno en el suyo. El formulario mira tu `PATH` al abrirse y solo
-  ofrece los que de verdad tienes: `claude`, `codex`, `gemini`, `opencode`,
+  corriendo, cada uno en el suyo. flow mira tu `PATH` al arrancar y el formulario
+  solo ofrece los que de verdad tienes: `claude`, `codex`, `gemini`, `opencode`,
   `aider`, `cursor-agent`, `amp`, `goose`, `crush`, más `shell`, `tests` y `git`.
+  El de `shell` es **el tuyo** —el de `$SHELL`, o `cmd` en Windows—, no uno
+  elegido por flow.
 - **Ocho paneles a la vez, en mosaico.** Todos en pantalla al mismo tiempo, sin
   pestañas: si tienes cuatro procesos trabajando, ves trabajar a los cuatro. El
   reparto se recalcula solo con la forma de la ventana.
@@ -220,10 +244,10 @@ bg     = #101014
 accent = #d3869b
 ```
 
-El fichero está en `%APPDATA%\flow\config` —o `$XDG_CONFIG_HOME/flow/config`
-fuera de Windows— y **el propio flow te lo escribe comentado** la primera vez,
-con todos los nombres de color que puedes tocar. El selector de temas enseña
-abajo la ruta exacta.
+El fichero está en `%APPDATA%\flow\config` —o `~/.config/flow/config` fuera de
+Windows— y **el propio flow te lo escribe comentado** la primera vez, con todos
+los nombres de color que puedes tocar. El selector de temas enseña abajo la ruta
+exacta, que es lo que hay que mirar si no aparece donde esperabas.
 
 ---
 
@@ -232,13 +256,16 @@ abajo la ruta exacta.
 flow escribe **dos ficheros de texto** en tu disco, y ninguno es crítico: si no
 se pueden escribir, la app funciona igual y simplemente no recuerda.
 
-| Qué                                | Dónde                                             |
-| ---------------------------------- | ------------------------------------------------- |
-| Los directorios que ya has usado   | `%APPDATA%\flow\projects`                         |
-| Tu configuración y tus temas       | `%APPDATA%\flow\config`                           |
-| Los buzones de las sesiones vivas  | El temporal del sistema, bajo el PID de flow      |
+| Qué                                | Windows                    | Linux y macOS            |
+| ---------------------------------- | -------------------------- | ------------------------ |
+| Los directorios que ya has usado   | `%APPDATA%\flow\projects`  | `~/.config/flow/projects` |
+| Tu configuración y tus temas       | `%APPDATA%\flow\config`    | `~/.config/flow/config`   |
+| Los buzones de las sesiones vivas  | El temporal del sistema, bajo el PID de flow | igual     |
 
-Fuera de Windows, `$XDG_CONFIG_HOME/flow/…` o `~/.config/flow/…`.
+Fuera de Windows manda `$XDG_CONFIG_HOME` si lo tienes puesto, y `~/.config` si
+no. En macOS eso significa `~/.config/flow` y no `~/Library/Application Support`:
+es un fichero de texto que está pensado para editarse a mano, y lo hace donde lo
+hacen las herramientas de terminal.
 
 El buzón de una sesión se borra al cerrar la sesión. La carpeta que los agrupa
 —`<temporal>\flow\<pid>`— se queda: son directorios vacíos, con el PID de una
@@ -276,19 +303,28 @@ La lista completa y razonada está en [por dentro](docs/arquitectura.md).
 ## Desarrollo
 
 ```
-cargo test                                       # 245: emulador, estado, interfaz, paleta, config, marca y teclado
+cargo test                                       # 253: emulador, estado, interfaz, paleta, config, marca y teclado
 cargo clippy --all-targets                       # sin warnings
 cargo run --example pty_probe -- "tu comando"    # sonda de la capa PTY
 ```
 
-No hace falta nada más que Rust. `build.rs` le pega al `.exe` su icono y su ficha
-de propiedades, y lo hace enlazando un recurso ya compilado que va en el
-repositorio: compilar flow no depende del SDK de Windows ni de ninguna caja de
-construcción. Fuera de `*-pc-windows-msvc` ese paso no hace nada.
+Nada más que Rust, y en Linux las bibliotecas de arriba. `build.rs` le pega al
+`.exe` su icono y su ficha de propiedades, y lo hace enlazando un recurso ya
+compilado que va en el repositorio: compilar flow no depende del SDK de Windows
+ni de ninguna caja de construcción. Fuera de `*-pc-windows-msvc` ese paso no
+hace nada.
 
 Cada push y cada pull request pasan por `.github/workflows/ci.yml`: `cargo test`
-y `cargo clippy -D warnings` en Windows. Publicar una versión es empujar una
-etiqueta `vX.Y.Z`; `release.yml` compila y sube el `.exe` a la release.
+y `cargo clippy -D warnings` en **Windows, Linux y macOS**, este último en sus
+dos arquitecturas. Publicar una versión es empujar una etiqueta `vX.Y.Z`;
+`release.yml` compila los cuatro binarios y los sube a la release.
+
+Lo que cambia de un sistema a otro está siempre detrás de un `cfg`, y casi
+siempre con un test que comprueba las dos ramas: el shell del usuario
+(`presets::shell`), la tecla de los atajos (`keys::reservada`), qué separa una
+ruta (`projects::name_of`, `repos::same_path`) y los tiradores de redimensionado
+(`ui::chrome::resize_handles`). Si tocas uno, mira su comentario primero: los
+cuatro dicen qué se rompió antes.
 
 ## Licencias
 
